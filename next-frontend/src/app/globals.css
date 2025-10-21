@@ -1,0 +1,242 @@
+:root {
+  --background-rgb: 24, 26, 27;
+  --foreground-rgb: 230, 230, 230;
+  --card-background-rgb: 32, 34, 36;
+  --border-rgb: 52, 54, 56;
+  --accent-rgb: 0, 122, 255;
+  --positive-rgb: 46, 204, 113;
+  --negative-rgb: 231, 76, 60;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background-color: rgb(var(--background-rgb));
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.header h1 {
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2rem;
+}
+
+@media (min-width: 1024px) {
+  .main-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.card {
+  background-color: rgb(var(--card-background-rgb));
+  border: 1px solid rgb(var(--border-rgb));
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.card-title {
+  font-size: 1.25rem;
+  font-weight: 500;
+  margin-bottom: 1.5rem;
+}
+
+.stats-container {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background-color: rgb(var(--card-background-rgb));
+  border: 1px solid rgb(var(--border-rgb));
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.stat-label {
+  font-size: 0.9rem;
+  color: #a0aec0;
+  margin-bottom: 0.5rem;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.positive {
+  color: rgb(var(--positive-rgb));
+}
+
+.negative {
+  color: rgb(var(--negative-rgb));
+}
+
+.breakeven {
+  color: #a0aec0;
+}
+
+.charts-container {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 1024px) {
+  .charts-container {
+    grid-column: span 2;
+  }
+}
+
+.trades-container {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 1024px) {
+  .trades-container {
+    grid-column: span 1;
+  }
+}
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: 1rem;
+  text-align: left;
+  border-bottom: 1px solid rgb(var(--border-rgb));
+}
+
+thead {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+th {
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.filters input, .filters select {
+  background-color: rgb(var(--background-rgb));
+  color: rgb(var(--foreground-rgb));
+  border: 1px solid rgb(var(--border-rgb));
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-size: 1rem;
+}
+
+.pagination-controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.pagination-controls button {
+  background-color: rgb(var(--accent-rgb));
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.pagination-controls button:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.pagination-controls button:disabled {
+  background-color: #636e72;
+  cursor: not-allowed;
+}
+
+.chart-container {
+  height: 400px;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: rgb(var(--card-background-rgb));
+  padding: 2rem;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--border-rgb));
+  width: 90%;
+  max-width: 600px;
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  color: rgb(var(--foreground-rgb));
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.trade-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.trade-details-grid div {
+  background-color: rgb(var(--background-rgb));
+  padding: 1rem;
+  border-radius: 6px;
+}
