@@ -1,0 +1,28 @@
+{
+  "1762118832898_Oct_20_2025_Oct_24_2025.csv": {
+    "filename": "1762118832898_Oct_20_2025_Oct_24_2025.csv",
+    "originalName": "Oct 20, 2025 – Oct 24, 2025.csv",
+    "uploadedAt": "2025-11-02T21:27:12.899Z",
+    "checksum": "7242385f95c933f81e66d8d6d68b1cd76468657d2388fa14034572ae3d30739d",
+    "dateRange": {
+      "start": "2025-10-20T07:00:00.000Z",
+      "end": "2025-10-24T07:00:00.000Z"
+    },
+    "status": "processed",
+    "recordCount": 64,
+    "lastProcessed": "2025-11-02T23:49:12.554Z"
+  },
+  "trades.csv": {
+    "filename": "trades.csv",
+    "originalName": "trades.csv",
+    "uploadedAt": "2025-11-02T21:25:04.248Z",
+    "checksum": "fe8d318c58a3ecbb3119fe690d9600367ea0abfc76d800182f48a0cbb56a5a82",
+    "dateRange": {
+      "start": "2018-11-12T08:00:00.000Z",
+      "end": "2025-10-20T07:00:00.000Z"
+    },
+    "status": "processed",
+    "recordCount": 3739,
+    "lastProcessed": "2025-11-02T23:49:12.607Z"
+  }
+}

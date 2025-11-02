@@ -16,6 +16,7 @@ import {
   subDays,
   isSameDay,
 } from "date-fns";
+import TradingJournal from "./TradingJournal";
 
 // This is the raw trade data structure from page.tsx
 interface Trade {
@@ -31,6 +32,14 @@ interface Trade {
   holding_period: number;
   pnl: number;
   status: "Win" | "Loss" | "Breakeven";
+}
+
+interface DayNote {
+  dateISO: string;
+  preMarketPlan?: string;
+  postDaySummary?: string;
+  tags?: string[];
+  lastUpdated: string;
 }
 
 // --- DATA MODELS from Spec ---
@@ -57,6 +66,7 @@ type DaySummary = {
   detail?: {
     trades: Array<TradeDetail>;
   };
+  note?: DayNote;
 };
 
 // --- LOGIC DETAILS from Spec ---
@@ -166,6 +176,10 @@ const DayCell: React.FC<{
     ? Math.max(10, (Math.abs(summary.netPnL) / maxPnl) * 100)
     : 0;
 
+  const hasNote =
+    summary?.note &&
+    (summary.note.preMarketPlan || summary.note.postDaySummary);
+
   return (
     <div
       className={`day-cell ${isTodayFlag ? "today" : ""} ${
@@ -179,6 +193,7 @@ const DayCell: React.FC<{
           {summary && (
             <span className="trade-count-tag">{summary.tradesCount}T</span>
           )}
+          {hasNote && <span className="note-indicator">📝</span>}
         </div>
         {summary && (
           <div
@@ -202,6 +217,7 @@ const CalendarGrid: React.FC<{
   setSelectedDay: (day: DaySummary | null) => void;
   focusedDate: Date;
   setFocusedDate: (date: Date) => void;
+  notes: { [dateISO: string]: DayNote };
 }> = ({
   days,
   currentDate,
@@ -211,6 +227,7 @@ const CalendarGrid: React.FC<{
   setSelectedDay,
   focusedDate,
   setFocusedDate,
+  notes,
 }) => {
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -241,6 +258,18 @@ const CalendarGrid: React.FC<{
         const summary = summaries[dateISO];
         if (summary) {
           setSelectedDay(summary);
+        } else {
+          // Allow opening drawer for days without trades
+          const minimalSummary: DaySummary = {
+            dateISO,
+            tradesCount: 0,
+            wins: 0,
+            losses: 0,
+            netPnL: 0,
+            detail: { trades: [] },
+            note: notes[dateISO],
+          };
+          setSelectedDay(minimalSummary);
         }
         break;
     }
@@ -269,8 +298,21 @@ const CalendarGrid: React.FC<{
         };
 
         const handleClick = () => {
+          // Allow clicking any day, create minimal summary if none exists
           if (summary) {
             setSelectedDay(summary);
+          } else {
+            // Create a minimal day summary for days without trades
+            const minimalSummary: DaySummary = {
+              dateISO,
+              tradesCount: 0,
+              wins: 0,
+              losses: 0,
+              netPnL: 0,
+              detail: { trades: [] },
+              note: notes[dateISO],
+            };
+            setSelectedDay(minimalSummary);
           }
         };
 
@@ -366,7 +408,18 @@ const TradeListItem: React.FC<{ trade: TradeDetail }> = ({ trade }) => {
 const DayDrawer: React.FC<{
   summary: DaySummary;
   onClose: () => void;
-}> = ({ summary, onClose }) => {
+  onNoteUpdate: (dateISO: string, note: DayNote) => void;
+}> = ({ summary, onClose, onNoteUpdate }) => {
+  const [isEditingNote, setIsEditingNote] = useState(false);
+  const [showJournal, setShowJournal] = useState(false);
+  const [preMarketPlan, setPreMarketPlan] = useState(
+    summary.note?.preMarketPlan || ""
+  );
+  const [postDaySummary, setPostDaySummary] = useState(
+    summary.note?.postDaySummary || ""
+  );
+  const [isSaving, setIsSaving] = useState(false);
+
   const winRate =
     summary.tradesCount > 0
       ? Math.round((summary.wins / summary.tradesCount) * 100)
@@ -388,6 +441,33 @@ const DayDrawer: React.FC<{
     };
   }, [handleKeyDown]);
 
+  const handleSaveNote = async () => {
+    setIsSaving(true);
+    try {
+      const response = await fetch("/api/notes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          dateISO: summary.dateISO,
+          preMarketPlan,
+          postDaySummary,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        onNoteUpdate(summary.dateISO, data.note);
+        setIsEditingNote(false);
+      }
+    } catch (error) {
+      console.error("Error saving note:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Correct for timezone offset when displaying
   const date = new Date(summary.dateISO);
   const userTimezoneOffset = date.getTimezoneOffset() * 60000;
@@ -405,13 +485,116 @@ const DayDrawer: React.FC<{
           <span>{summary.tradesCount} trades</span>
           <span>{winRate}% win rate</span>
         </div>
+
+        {/* Notes Section */}
+        <div className="drawer-notes-section">
+          <div className="notes-header">
+            <h3>📝 Trading Notes</h3>
+            <div className="note-actions">
+              <button
+                className="edit-note-btn"
+                onClick={() => setShowJournal(true)}
+                style={{ marginRight: "0.5rem" }}
+              >
+                📔 Full Journal
+              </button>
+              {!isEditingNote ? (
+                <button
+                  className="edit-note-btn"
+                  onClick={() => setIsEditingNote(true)}
+                >
+                  {summary.note?.preMarketPlan || summary.note?.postDaySummary
+                    ? "Quick Edit"
+                    : "Quick Add"}
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="save-note-btn"
+                    onClick={handleSaveNote}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    className="cancel-note-btn"
+                    onClick={() => {
+                      setIsEditingNote(false);
+                      setPreMarketPlan(summary.note?.preMarketPlan || "");
+                      setPostDaySummary(summary.note?.postDaySummary || "");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {isEditingNote ? (
+            <div className="note-edit-form">
+              <div className="note-field">
+                <label>Pre-Market Prep</label>
+                <textarea
+                  value={preMarketPlan}
+                  onChange={(e) => setPreMarketPlan(e.target.value)}
+                  placeholder="What's your plan before the market opens?"
+                  rows={4}
+                />
+              </div>
+              <div className="note-field">
+                <label>Post-Market Summary</label>
+                <textarea
+                  value={postDaySummary}
+                  onChange={(e) => setPostDaySummary(e.target.value)}
+                  placeholder="Reflect on your trading day..."
+                  rows={4}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="note-display">
+              {summary.note?.preMarketPlan && (
+                <div className="note-section">
+                  <h4>Pre-Market Prep</h4>
+                  <p>{summary.note.preMarketPlan}</p>
+                </div>
+              )}
+              {summary.note?.postDaySummary && (
+                <div className="note-section">
+                  <h4>Post-Market Summary</h4>
+                  <p>{summary.note.postDaySummary}</p>
+                </div>
+              )}
+              {!summary.note?.preMarketPlan &&
+                !summary.note?.postDaySummary && (
+                  <p className="no-notes">No notes for this day yet.</p>
+                )}
+            </div>
+          )}
+        </div>
+
         <div className="trade-list">
+          <h3>Trades</h3>
           {summary.detail &&
             summary.detail.trades.map((trade) => (
               <TradeListItem key={trade.id} trade={trade} />
             ))}
         </div>
       </div>
+
+      {/* Professional Trading Journal Modal */}
+      {showJournal && (
+        <TradingJournal
+          dateISO={summary.dateISO}
+          initialNote={summary.note}
+          onClose={() => setShowJournal(false)}
+          onSave={(updatedNote) => {
+            onNoteUpdate(summary.dateISO, updatedNote);
+            setShowJournal(false);
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -422,13 +605,37 @@ const TradingCalendar: React.FC<{ trades: Trade[] }> = ({ trades }) => {
   const [hoveredDay, setHoveredDay] = useState<DaySummary | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [selectedDay, setSelectedDay] = useState<DaySummary | null>(null);
+  const [notes, setNotes] = useState<{ [dateISO: string]: DayNote }>({});
 
   useEffect(() => {
     setFocusedDate(currentDate);
   }, [currentDate]);
 
+  // Load notes from API
+  useEffect(() => {
+    const fetchNotes = async () => {
+      try {
+        const response = await fetch("/api/notes");
+        if (response.ok) {
+          const data = await response.json();
+          setNotes(data);
+        }
+      } catch (error) {
+        console.error("Error loading notes:", error);
+      }
+    };
+    fetchNotes();
+  }, []);
+
+  const handleNoteUpdate = (dateISO: string, note: DayNote) => {
+    setNotes((prev) => ({
+      ...prev,
+      [dateISO]: note,
+    }));
+  };
+
   const summariesByDate = useMemo(() => {
-    return trades.reduce((acc, trade, index) => {
+    const summaries = trades.reduce((acc, trade, index) => {
       // Correct for timezone offset to treat date as local
       const date = new Date(trade.close_date);
       const userTimezoneOffset = date.getTimezoneOffset() * 60000;
@@ -443,10 +650,12 @@ const TradingCalendar: React.FC<{ trades: Trade[] }> = ({ trades }) => {
           losses: 0,
           netPnL: 0,
           detail: { trades: [] },
+          note: notes[dateISO],
         };
       }
       acc[dateISO].tradesCount++;
       acc[dateISO].netPnL += trade.pnl;
+      acc[dateISO].note = notes[dateISO];
       acc[dateISO].detail!.trades.push({
         id: `${trade.symbol}-${trade.open_date}-${trade.close_date}-${trade.pnl}-${index}`, // even more unique key
         time: format(new Date(trade.close_date), "HH:mm"),
@@ -467,7 +676,24 @@ const TradingCalendar: React.FC<{ trades: Trade[] }> = ({ trades }) => {
       }
       return acc;
     }, {} as Record<string, DaySummary>);
-  }, [trades]);
+
+    // Add days with notes but no trades
+    Object.keys(notes).forEach((dateISO) => {
+      if (!summaries[dateISO]) {
+        summaries[dateISO] = {
+          dateISO,
+          tradesCount: 0,
+          wins: 0,
+          losses: 0,
+          netPnL: 0,
+          detail: { trades: [] },
+          note: notes[dateISO],
+        };
+      }
+    });
+
+    return summaries;
+  }, [trades, notes]);
 
   const daysForGrid = useMemo(() => {
     const monthStart = startOfMonth(currentDate);
@@ -531,12 +757,17 @@ const TradingCalendar: React.FC<{ trades: Trade[] }> = ({ trades }) => {
         setSelectedDay={setSelectedDay}
         focusedDate={focusedDate}
         setFocusedDate={setFocusedDate}
+        notes={notes}
       />
       {hoveredDay && (
         <DayTooltip summary={hoveredDay} position={tooltipPosition} />
       )}
       {selectedDay && (
-        <DayDrawer summary={selectedDay} onClose={() => setSelectedDay(null)} />
+        <DayDrawer
+          summary={selectedDay}
+          onClose={() => setSelectedDay(null)}
+          onNoteUpdate={handleNoteUpdate}
+        />
       )}
     </div>
   );
