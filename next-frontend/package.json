@@ -11,6 +11,8 @@
   "dependencies": {
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.4.0",
+    "@react-three/postprocessing": "^3.0.4",
+    "@supabase/supabase-js": "^2.78.0",
     "@types/react-date-range": "^1.4.10",
     "canvas-confetti": "^1.9.3",
     "csv-parse": "^6.1.0",
@@ -24,6 +26,7 @@
     "react-calendar": "^6.0.0",
     "react-date-range": "^2.0.1",
     "react-dom": "19.1.0",
+    "simplex-noise": "^4.0.3",
     "three": "^0.181.0"
   },
   "devDependencies": {

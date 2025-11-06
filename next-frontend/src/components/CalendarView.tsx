@@ -186,10 +186,13 @@ const DayCell: React.FC<{
         isFocused ? "focused" : ""
       }`}
       style={{ opacity }}
+      aria-current={isTodayFlag ? "date" : undefined}
     >
       <div className="day-cell-content">
         <div className="day-header">
-          <span className="day-number">{dayNumber}</span>
+          <span className={`day-number${isTodayFlag ? " today" : ""}`}>
+            {dayNumber}
+          </span>
           {summary && (
             <span className="trade-count-tag">{summary.tradesCount}T</span>
           )}

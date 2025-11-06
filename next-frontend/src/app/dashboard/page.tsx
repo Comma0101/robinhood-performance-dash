@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import PnLChart from "@/components/PnLChart";
 import CumulativePnLChart from "@/components/CumulativePnLChart";
 import Modal from "@/components/Modal";
@@ -126,6 +127,7 @@ const calculateSummary = (trades: Trade[]) => {
 const TRADES_PER_PAGE = 15;
 
 export default function Home() {
+  const router = useRouter();
   const [allTrades, setAllTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -516,6 +518,13 @@ export default function Home() {
       category: "Navigation",
     },
     {
+      id: "chart-workspace",
+      label: "Open Chart Workspace",
+      description: "Launch the advanced chart with GPT-5 copilot",
+      action: () => router.push("/chart-view"),
+      category: "Navigation",
+    },
+    {
       id: "search",
       label: "Focus Symbol Search",
       description: "Quickly search for a symbol",
@@ -695,6 +704,47 @@ export default function Home() {
                 <path d="M10 2V5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               </svg>
               <span>Calendar</span>
+            </button>
+            <button
+              onClick={() => router.push("/command-center")}
+              className="nav-item nav-item-command-center"
+              title="Open AI Command Center"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M8 1.5L9.76 5.4l3.9.33-2.97 2.57.9 3.8L8 10.9l-3.59 2.2.9-3.8L2.34 5.73l3.9-.33L8 1.5Z"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span className="nav-item-text">
+                Command Center
+                <span className="nav-item-badge">AI</span>
+              </span>
+            </button>
+            <button
+              onClick={() => router.push("/chart-view")}
+              className="nav-item"
+              title="Open Chart Workspace"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M2 11L5.5 7.5L8.5 10.5L12 5L14 7"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M2 13H14"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span>Chart Workspace</span>
             </button>
           </nav>
         </div>

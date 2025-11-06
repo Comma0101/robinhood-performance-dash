@@ -44,18 +44,25 @@ export async function GET(request: Request) {
     let effectiveInterval: string;
 
     // New logic: Prioritize the requested interval if valid
-    if (interval && ["1min", "5min", "15min"].includes(interval)) {
-      url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=${interval}&apikey=${apiKey}&outputsize=full`;
+    if (
+      interval &&
+      ["1min", "5min", "15min", "30min", "60min"].includes(interval)
+    ) {
+      url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=${interval}&entitlement=realtime&apikey=${apiKey}&outputsize=full`;
       timeKey = `Time Series (${interval})`;
       effectiveInterval = interval;
+    } else if (interval === "daily") {
+      url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&entitlement=realtime&apikey=${apiKey}&outputsize=full`;
+      timeKey = "Time Series (Daily)";
+      effectiveInterval = "daily";
     } else if (holdingPeriodDays <= 5) {
       // Fallback for short trades: 15-minute intervals
-      url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=15min&apikey=${apiKey}&outputsize=full`;
+      url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=15min&entitlement=realtime&apikey=${apiKey}&outputsize=full`;
       timeKey = "Time Series (15min)";
       effectiveInterval = "15min";
     } else {
       // Fallback for long trades: daily data
-      url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&apikey=${apiKey}&outputsize=full`;
+      url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&entitlement=realtime&apikey=${apiKey}&outputsize=full`;
       timeKey = "Time Series (Daily)";
       effectiveInterval = "daily";
     }

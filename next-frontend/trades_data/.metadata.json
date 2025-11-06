@@ -10,7 +10,7 @@
     },
     "status": "processed",
     "recordCount": 64,
-    "lastProcessed": "2025-11-02T23:49:12.554Z"
+    "lastProcessed": "2025-11-06T03:32:07.598Z"
   },
   "trades.csv": {
     "filename": "trades.csv",
@@ -23,6 +23,6 @@
     },
     "status": "processed",
     "recordCount": 3739,
-    "lastProcessed": "2025-11-02T23:49:12.607Z"
+    "lastProcessed": "2025-11-06T03:32:07.693Z"
   }
 }

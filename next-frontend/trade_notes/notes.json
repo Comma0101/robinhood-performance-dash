@@ -5,5 +5,12 @@
     "postDaySummary": "This is over trading day.\n",
     "tags": [],
     "lastUpdated": "2025-10-24T21:34:36.997Z"
+  },
+  "2025-11-05": {
+    "dateISO": "2025-11-05",
+    "lastUpdated": "2025-11-05T18:05:56.371Z",
+    "preMarketPlan": "amd posted earning, it was bought up from 236-256, now its at 256. plan was wait for pull back to enter.",
+    "marketConditions": "Trending Up",
+    "newsEvents": " Financial Analyst Day on Tuesday, November 11, 2025"
   }
 }

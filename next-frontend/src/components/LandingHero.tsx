@@ -4,6 +4,11 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
 import ParticleFlowSystem from "./ParticleFlowSystem";
 import { useRouter } from "next/navigation";
+import {
+  EffectComposer,
+  DepthOfField,
+  Bloom,
+} from "@react-three/postprocessing";
 
 // Ticker data pool - fixed set as specified
 const TICKER_POOL = [
@@ -12,7 +17,7 @@ const TICKER_POOL = [
   { symbol: "TSLA", change: -15.23, changePercent: -2.34 },
   { symbol: "NVDA", change: 45.67, changePercent: 3.21 },
   { symbol: "AAPL", change: 2.15, changePercent: 0.76 },
-  { symbol: "AMZN", change: -8.90, changePercent: -1.45 },
+  { symbol: "AMZN", change: -8.9, changePercent: -1.45 },
 ];
 
 // Generate mini sparkline data (simple sine wave pattern)
@@ -20,7 +25,7 @@ function generateSparkline(isPositive: boolean, length: number = 12): number[] {
   const data: number[] = [];
   const base = isPositive ? 0.3 : 0.7;
   for (let i = 0; i < length; i++) {
-    const value = base + (Math.sin((i / length) * Math.PI * 2) * 0.3);
+    const value = base + Math.sin((i / length) * Math.PI * 2) * 0.3;
     data.push(Math.max(0, Math.min(1, value)));
   }
   return data;
@@ -51,26 +56,26 @@ export default function LandingHero() {
   useEffect(() => {
     // Shuffle ticker pool to rotate selection
     const shuffled = [...TICKER_POOL].sort(() => Math.random() - 0.5);
-    
+
     // Create a tighter vortex/funnel arrangement
     const selectedTickers = shuffled.slice(0, 6).map((ticker, idx) => {
       const isBullish = ticker.changePercent > 0;
-      
+
       // Create vortex pattern: tighter arrangement in center, expanding outward
       // Bullish go up-left, bearish go down-right
       const spiralAngle = (idx / 6) * Math.PI * 2;
       const spiralRadius = 2.5 + (idx % 3) * 1.2; // Tighter radius for vortex
-      
+
       // Adjust angle based on bullish/bearish direction
-      const adjustedAngle = isBullish 
+      const adjustedAngle = isBullish
         ? spiralAngle - Math.PI / 4 // Up-left quadrant
         : spiralAngle + Math.PI / 4; // Down-right quadrant
-      
+
       // Position along a vortex/funnel (more cohesive)
       const position = {
         x: Math.cos(adjustedAngle) * spiralRadius,
         y: Math.sin(adjustedAngle) * spiralRadius * 0.5, // Flatten for vortex effect
-        z: (idx % 3 - 1) * 0.6, // Deterministic z depth
+        z: ((idx % 3) - 1) * 0.6, // Deterministic z depth
       };
 
       // Velocity based on bullish/bearish flow (deterministic with slight variation)
@@ -97,92 +102,80 @@ export default function LandingHero() {
     });
 
     setTickers(selectedTickers);
-    
+
     // Initialize animated positions
-    animatedPosRef.current = selectedTickers.map(t => ({
+    animatedPosRef.current = selectedTickers.map((t) => ({
       x: t.position.x,
       y: t.position.y,
     }));
     setAnimatedPositions(animatedPosRef.current);
   }, []);
 
-  // Animate HTML ticker card positions in circular pattern (synced with 3D)
+  // Animate HTML ticker card positions with bouncing behavior
   useEffect(() => {
     if (tickers.length === 0) return;
 
     let animationFrame: number;
-    let lastTime = Date.now();
     const startTime = Date.now();
-    
-    // Smooth position tracking to prevent jitter
-    const smoothedPositions = animatedPosRef.current.map(p => ({ ...p }));
+
+    // Initialize animated entities with position and velocity
+    const animatedEntities = animatedPosRef.current.map((p, idx) => {
+      const ticker = tickers[idx];
+      const isBullish = ticker.isBullish;
+      const flowDirection = isBullish ? Math.PI / 4 : Math.PI / 4 + Math.PI;
+      const driftSpeed = 0.02; // A constant, gentle speed
+      return {
+        x: p.x,
+        y: p.y,
+        vx: Math.cos(flowDirection) * driftSpeed,
+        vy: Math.sin(flowDirection) * driftSpeed,
+      };
+    });
 
     const animate = () => {
-      const currentTime = Date.now();
-      const deltaTime = (currentTime - lastTime) * 0.016; // ~60fps
-      lastTime = currentTime;
-      const t = (currentTime - startTime) * 0.001;
+      const t = (Date.now() - startTime) * 0.001;
 
-      setAnimatedPositions((prev) => {
-        return prev.map((pos, idx) => {
-          const ticker = tickers[idx];
-          if (!ticker) return pos;
+      const newPositions = animatedEntities.map((entity, idx) => {
+        // Apply a subtle, organic wave to the movement
+        const wave = Math.sin(t * 0.5 + idx * 0.5) * 0.001;
+        let newVx = entity.vx + wave;
+        let newVy = entity.vy + wave;
 
-          const isBullish = ticker.isBullish;
-          const centerX = 0;
-          const centerY = 0;
+        // Update position based on velocity
+        let newX = entity.x + newVx;
+        let newY = entity.y + newVy;
 
-          // Use smoothed position to prevent jitter
-          const currentPos = smoothedPositions[idx] || pos;
-          
-          // Get current radius and angle
-          const dx = currentPos.x - centerX;
-          const dy = currentPos.y - centerY;
-          const radius = Math.sqrt(dx * dx + dy * dy);
-          const angle = Math.atan2(dy, dx);
+        // Boundary check and bounce logic
+        const boundary = 8;
+        const distanceFromCenter = Math.sqrt(newX * newX + newY * newY);
 
-          // Follow particle flow paths - subtle drift (4-7s)
-          // Very gentle movement to prevent shaking
-          const flowDirection = isBullish ? Math.PI / 4 : Math.PI / 4 + Math.PI;
-          
-          // Much slower drift speed
-          const driftSpeed = 0.0015 + (idx % 3) * 0.0005;
-          
-          // Subtle sine wave for organic flow
-          const flowOffset = Math.sin(t * 0.2 + idx) * 0.05;
-          
-          // Calculate new position following flow (very smooth)
-          let targetX = centerX + Math.cos(flowDirection + flowOffset) * (radius + driftSpeed * t * 5);
-          let targetY = centerY + Math.sin(flowDirection + flowOffset) * (radius + driftSpeed * t * 5);
-          
-          // Add gentle vertical component
-          targetY += isBullish ? -0.0015 : 0.0015;
+        if (distanceFromCenter > boundary) {
+          // Normalize the position vector to get the normal at the boundary
+          const nx = newX / distanceFromCenter;
+          const ny = newY / distanceFromCenter;
 
-          // Smooth interpolation to prevent jitter
-          const smoothFactor = 0.05;
-          const newX = currentPos.x + (targetX - currentPos.x) * smoothFactor;
-          const newY = currentPos.y + (targetY - currentPos.y) * smoothFactor;
+          // Calculate the dot product of the velocity and the normal
+          const dot = newVx * nx + newVy * ny;
 
-          // Wrap around if too far from center
-          const distanceFromCenter = Math.sqrt(
-            Math.pow(newX - centerX, 2) + Math.pow(newY - centerY, 2)
-          );
-          let finalX = newX;
-          let finalY = newY;
-          
-          if (distanceFromCenter > 10) {
-            const resetAngle = Math.random() * Math.PI * 2;
-            finalX = centerX + Math.cos(resetAngle) * 3;
-            finalY = centerY + Math.sin(resetAngle) * 3;
-          }
+          // Reflect the velocity vector
+          newVx = newVx - 2 * dot * nx;
+          newVy = newVy - 2 * dot * ny;
 
-          // Update smoothed position
-          smoothedPositions[idx] = { x: finalX, y: finalY };
+          // Clamp the position to the boundary to prevent getting stuck
+          newX = nx * boundary;
+          newY = ny * boundary;
+        }
 
-          return { x: finalX, y: finalY };
-        });
+        // Update the entity's state for the next frame
+        entity.x = newX;
+        entity.y = newY;
+        entity.vx = newVx;
+        entity.vy = newVy;
+
+        return { x: newX, y: newY };
       });
 
+      setAnimatedPositions(newPositions);
       animationFrame = requestAnimationFrame(animate);
     };
 
@@ -196,20 +189,20 @@ export default function LandingHero() {
   useEffect(() => {
     let targetMouse = { x: 0, y: 0 };
     let currentMouse = { x: 0, y: 0 };
-    
+
     const handleMouseMove = (e: MouseEvent) => {
       if (!containerRef.current) return;
-      
+
       const rect = containerRef.current.getBoundingClientRect();
-      targetMouse.x = ((e.clientX - rect.left) / rect.width - 0.5);
-      targetMouse.y = ((e.clientY - rect.top) / rect.height - 0.5);
+      targetMouse.x = (e.clientX - rect.left) / rect.width - 0.5;
+      targetMouse.y = (e.clientY - rect.top) / rect.height - 0.5;
     };
 
     const smoothMouse = () => {
       // Smooth interpolation (ease-out)
       currentMouse.x += (targetMouse.x - currentMouse.x) * 0.1;
       currentMouse.y += (targetMouse.y - currentMouse.y) * 0.1;
-      
+
       setMouse({ x: currentMouse.x, y: currentMouse.y });
       requestAnimationFrame(smoothMouse);
     };
@@ -260,9 +253,23 @@ export default function LandingHero() {
         >
           <ambientLight intensity={0.3} />
           <pointLight position={[10, 10, 10]} intensity={0.5} />
-          
+
           {/* Particle flow system - layered streaks */}
           <ParticleFlowSystem count={720} mouse={mouse} />
+          <EffectComposer>
+            <DepthOfField
+              focusDistance={0}
+              focalLength={0.02}
+              bokehScale={2}
+              height={480}
+            />
+            <Bloom
+              intensity={0.2}
+              luminanceThreshold={0.1}
+              luminanceSmoothing={0.9}
+              height={300}
+            />
+          </EffectComposer>
         </Canvas>
       </div>
 
@@ -300,8 +307,11 @@ export default function LandingHero() {
               backgroundClip: "text",
               margin: 0,
               cursor: "pointer",
-              transition: "transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
-              transform: `translateY(${mouse.y * 3}px) scale(${1 + Math.abs(mouse.x) * 0.008})`,
+              transition:
+                "transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
+              transform: `translateY(${mouse.y * 3}px) scale(${
+                1 + Math.abs(mouse.x) * 0.008
+              })`,
               opacity: 0.97,
             }}
             onMouseEnter={(e) => {
@@ -328,7 +338,7 @@ export default function LandingHero() {
             letterSpacing: "-0.01em",
           }}
         >
-          Level Up Your Trading Game.
+          The Edge You Need.
         </h2>
 
         {/* Sub-line */}
@@ -344,9 +354,10 @@ export default function LandingHero() {
             lineHeight: "1.6",
           }}
         >
-          Data-driven insights. Intelligent journaling.
+          Institutional-grade tools for the modern trader.
           <br />
-          Master consistency — build real edge.
+          Master your strategy with data-driven insights and intelligent
+          journaling.
         </p>
 
         {/* CTA Buttons */}
@@ -404,332 +415,7 @@ export default function LandingHero() {
               Launch Dashboard
             </button>
           </div>
-
-          {/* Secondary CTA */}
-          <button
-            className="cta-secondary"
-            style={{
-              padding: "16px 40px",
-              fontSize: "18px",
-              fontWeight: 500,
-              color: "rgba(255, 255, 255, 0.8)",
-              background: "transparent",
-              border: "1px solid rgba(255, 255, 255, 0.2)",
-              borderRadius: "8px",
-              cursor: "pointer",
-              transition: "all 0.4s ease",
-              fontFamily: "var(--font-geist-sans), sans-serif",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "translateY(-2px)";
-              e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.4)";
-              e.currentTarget.style.color = "rgba(255, 255, 255, 1)";
-              e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "translateY(0)";
-              e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.2)";
-              e.currentTarget.style.color = "rgba(255, 255, 255, 0.8)";
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            View Insights
-          </button>
         </div>
-
-        {/* Value Badges - 3 Column Layout */}
-        <div
-          className="value-badges-grid"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "2rem",
-            marginTop: "3.5rem",
-            maxWidth: "900px",
-            width: "100%",
-            padding: "0 2rem",
-          }}
-        >
-          {/* Market Intelligence */}
-          <a
-            href="#market-intelligence"
-            style={{
-              textDecoration: "none",
-              color: "inherit",
-              cursor: "pointer",
-              transition: "transform 0.3s ease, opacity 0.3s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "translateY(-4px)";
-              e.currentTarget.style.opacity = "0.9";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "translateY(0)";
-              e.currentTarget.style.opacity = "1";
-            }}
-          >
-            <div
-              style={{
-                textAlign: "center",
-                padding: "1.5rem",
-                borderRadius: "12px",
-                background: "rgba(255, 255, 255, 0.03)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                transition: "all 0.3s ease",
-              }}
-            >
-              <div style={{ fontSize: "2rem", marginBottom: "0.75rem" }}>🔍</div>
-              <div
-                style={{
-                  fontSize: "16px",
-                  fontWeight: 600,
-                  color: "#ffffff",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                Market Intelligence
-              </div>
-              <div
-                style={{
-                  fontSize: "14px",
-                  color: "rgba(255, 255, 255, 0.6)",
-                  lineHeight: "1.5",
-                }}
-              >
-                Dealer positioning, gamma levels, liquidity flows
-              </div>
-            </div>
-          </a>
-
-          {/* Performance Tracking */}
-          <a
-            href="#performance-tracking"
-            style={{
-              textDecoration: "none",
-              color: "inherit",
-              cursor: "pointer",
-              transition: "transform 0.3s ease, opacity 0.3s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "translateY(-4px)";
-              e.currentTarget.style.opacity = "0.9";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "translateY(0)";
-              e.currentTarget.style.opacity = "1";
-            }}
-          >
-            <div
-              style={{
-                textAlign: "center",
-                padding: "1.5rem",
-                borderRadius: "12px",
-                background: "rgba(255, 255, 255, 0.03)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                transition: "all 0.3s ease",
-              }}
-            >
-              <div style={{ fontSize: "2rem", marginBottom: "0.75rem" }}>📈</div>
-              <div
-                style={{
-                  fontSize: "16px",
-                  fontWeight: 600,
-                  color: "#ffffff",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                Performance Tracking
-              </div>
-              <div
-                style={{
-                  fontSize: "14px",
-                  color: "rgba(255, 255, 255, 0.6)",
-                  lineHeight: "1.5",
-                }}
-              >
-                Automated journaling with fill-level execution stats
-              </div>
-            </div>
-          </a>
-
-          {/* Behavioral Edge */}
-          <a
-            href="#behavioral-edge"
-            style={{
-              textDecoration: "none",
-              color: "inherit",
-              cursor: "pointer",
-              transition: "transform 0.3s ease, opacity 0.3s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "translateY(-4px)";
-              e.currentTarget.style.opacity = "0.9";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "translateY(0)";
-              e.currentTarget.style.opacity = "1";
-            }}
-          >
-            <div
-              style={{
-                textAlign: "center",
-                padding: "1.5rem",
-                borderRadius: "12px",
-                background: "rgba(255, 255, 255, 0.03)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                transition: "all 0.3s ease",
-              }}
-            >
-              <div style={{ fontSize: "2rem", marginBottom: "0.75rem" }}>🎯</div>
-              <div
-                style={{
-                  fontSize: "16px",
-                  fontWeight: 600,
-                  color: "#ffffff",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                Behavioral Edge
-              </div>
-              <div
-                style={{
-                  fontSize: "14px",
-                  color: "rgba(255, 255, 255, 0.6)",
-                  lineHeight: "1.5",
-                }}
-              >
-                Psychology analytics to improve discipline
-              </div>
-            </div>
-          </a>
-        </div>
-      </div>
-
-      {/* Ticker Cards HTML Overlay (positioned via CSS) */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          pointerEvents: "none",
-          zIndex: 5,
-        }}
-      >
-        {tickers.map((ticker, idx) => {
-          // Use animated position (synced with 3D rectangle movement)
-          const animatedPos = animatedPositions[idx] || ticker.position;
-          
-          // Convert 3D position to 2D screen coordinates
-          // Match the Three.js camera projection: fov 75, position [0,0,8]
-          // Use the same coordinate mapping that the 3D scene uses
-          // The 3D boxes are positioned in world space, we need to project to screen
-          
-          // Simple perspective projection matching Three.js camera
-          // Scale factor based on camera distance and field of view
-          const scale = 1.2; // Adjust this to match visual alignment
-          const projectedX = animatedPos.x * scale;
-          const projectedY = -animatedPos.y * scale; // Invert Y for screen coordinates
-          
-          // Convert to percentage centered at 50% (middle of viewport)
-          // Adjust the multiplier to match the visual scale of the 3D scene
-          const screenX = 50 + projectedX * 5;
-          const screenY = 50 + projectedY * 5;
-          
-          const isPositive = ticker.changePercent > 0;
-          const shouldPulse = Math.abs(ticker.changePercent) > 1.5;
-
-          return (
-            <div
-              key={`ticker-html-${idx}`}
-              className="ticker-card-html"
-              style={{
-                position: "absolute",
-                left: `${screenX}%`,
-                top: `${screenY}%`,
-                transform: "translate(-50%, -50%)", // Center the card on the position
-                width: "120px",
-                height: "80px",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center",
-                alignItems: "center",
-                background: hoveredTicker === idx 
-                  ? "rgba(10, 10, 10, 0.95)" 
-                  : "rgba(10, 10, 10, 0.85)",
-                border: hoveredTicker === idx
-                  ? `1px solid rgba(255, 255, 255, 0.5)`
-                  : `1px solid ${isPositive ? "rgba(255, 255, 255, 0.3)" : "rgba(255, 255, 255, 0.2)"}`,
-                borderRadius: "8px",
-                color: "#ffffff",
-                fontFamily: "var(--font-geist-mono), monospace",
-                fontSize: "14px",
-                fontWeight: 500,
-                backdropFilter: "blur(10px)",
-                boxShadow: hoveredTicker === idx
-                  ? `0 4px 16px rgba(0, 0, 0, 0.5)`
-                  : `0 2px 8px rgba(0, 0, 0, 0.3)`,
-                animation: shouldPulse && hoveredTicker !== idx
-                  ? "pulse-glow 2s ease-in-out infinite"
-                  : "none",
-                pointerEvents: "auto",
-                cursor: "pointer",
-                transition: "all 0.5s cubic-bezier(0.4, 0, 0.2, 1)",
-                willChange: "transform",
-              }}
-              onMouseEnter={() => setHoveredTicker(idx)}
-              onMouseLeave={() => setHoveredTicker(null)}
-              onClick={() => {
-                // Interactive: Could open ticker details or filter
-                console.log(`Clicked ticker: ${ticker.symbol}`);
-              }}
-            >
-              <div 
-                style={{ 
-                  fontSize: "16px", 
-                  marginBottom: "4px",
-                  transition: "transform 0.3s ease",
-                  transform: hoveredTicker === idx ? "scale(1.1)" : "scale(1)",
-                  fontWeight: 600,
-                }}
-              >
-                {ticker.symbol}
-              </div>
-              <div
-                style={{
-                  color: isPositive ? "#21F0D5" : "#FF2E6A",
-                  fontSize: "14px",
-                  fontWeight: 500,
-                  marginBottom: "6px",
-                  transition: "all 0.3s ease",
-                  transform: hoveredTicker === idx ? "translateY(-2px)" : "translateY(0)",
-                }}
-              >
-                {isPositive ? "+" : ""}
-                {ticker.changePercent.toFixed(2)}%
-              </div>
-              {/* Mini Sparkline */}
-              <svg
-                width="60"
-                height="16"
-                style={{
-                  marginTop: "4px",
-                  opacity: hoveredTicker === idx ? 1 : 0.8,
-                  transition: "opacity 0.3s ease",
-                }}
-              >
-                <polyline
-                  points={generateSparkline(isPositive, 12)
-                    .map((val, i) => `${(i / 11) * 60},${16 - val * 12}`)
-                    .join(" ")}
-                  fill="none"
-                  stroke={isPositive ? "#21F0D5" : "#FF2E6A"}
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-          );
-        })}
       </div>
     </div>
   );
