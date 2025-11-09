@@ -20,7 +20,7 @@ export interface ICTBar {
 
 export type MarketBias = "bullish" | "bearish" | "neutral";
 
-export type StructureEventType = "BOS" | "ChoCH";
+export type StructureEventType = "BOS" | "ChoCH" | "Sweep";
 
 export interface SwingPoint {
   time: string;
@@ -35,18 +35,33 @@ export interface StructureEvent {
   time: string;
   barIndex: number;
   referenceSwing: SwingPoint;
+  displacement?: number;
+  atr?: number;
+  threshold?: number;
+  hasDisplacement: boolean;
 }
 
 export interface LiquidityLevel {
   time: string;
   price: number;
   count: number;
+  stackScore?: number;
+  classification?: "internal" | "external" | "relative";
+  label?: string;
+  source?: "major" | "minor";
+}
+
+export interface LiquidityStack {
+  direction: "high" | "low";
+  price: number;
+  strength: number;
+  members: LiquidityLevel[];
 }
 
 export type OrderBlockType = "demand" | "supply";
 export type OrderBlockOrigin = "BOS" | "ChoCH";
 export type OrderBlockZone = "main" | "sub";
-export type OrderBlockRefinementMethod = "defensive" | "aggressive";
+export type OrderBlockRefinementMethod = "defensive" | "aggressive" | "mean_threshold";
 
 export interface OrderBlock {
   type: OrderBlockType;
@@ -62,10 +77,18 @@ export interface OrderBlock {
     low: number;
     high: number;
     method: OrderBlockRefinementMethod;
+    mean?: number;
   };
   ageBars: number;
   score: number;
   isValid: boolean;
+  touchCount: number;
+  lastTouchAt?: string;
+  invalidatedAt?: string;
+  status: "active" | "mitigated" | "invalidated";
+  classification: "origin" | "breaker" | "mitigation";
+  reclaimed?: boolean;
+  breakerParentTime?: string;
 }
 
 export type FairValueGapType = "bullish" | "bearish";
@@ -79,6 +102,13 @@ export interface FairValueGap {
     high: number;
   };
   filled: boolean;
+  ce: number;
+  firstTouchAt?: string;
+  lastTouchAt?: string;
+  touchCount: number;
+  filledRatio: number;
+  ageBars: number;
+  potency: number;
 }
 
 export interface SessionsConfig {
@@ -100,11 +130,21 @@ export interface ICTAnalysisMeta {
   symbol: string;
   interval: ICTInterval | string;
   tz: "America/New_York";
+  exchangeTZ?: string;
+  lookbackBars?: number;
+  barsCount?: number;
   range: {
     start: string;
     end: string;
   };
   lastBar: ICTBar | null;
+  sourceInterval?: ICTInterval | string;
+  generatedAt?: string;
+  currentBar?: ICTBar | null;
+  currentBarSummary?: string | null;
+  lastClosedBarTimeISO?: string;
+  pricePrecision?: number;
+  includesCurrentBar?: boolean;
 }
 
 export interface ICTAnalysisStructure {
@@ -129,6 +169,9 @@ export interface ICTAnalysis {
     equalLows: LiquidityLevel[];
     externalHighs: LiquidityLevel[];
     externalLows: LiquidityLevel[];
+    relativeEqualHighs: LiquidityLevel[];
+    relativeEqualLows: LiquidityLevel[];
+    stacks: LiquidityStack[];
   };
   sessions: {
     killZones: KillZone[];
@@ -139,6 +182,7 @@ export interface ICTAnalysis {
     weeklyHigh?: number;
     weeklyLow?: number;
   };
+  smtSignals: SMTSignal[];
 }
 
 export interface DealingRange {
@@ -168,4 +212,20 @@ export interface ICTAnalysisOptions {
   dynamicLiquidityPeriod?: number;
   staticLiquiditySensitivity?: number;
   dynamicLiquiditySensitivity?: number;
+  structureAtrPeriod?: number;
+  structureDisplacementMultiplier?: number;
+  comparativeSymbols?: string[];
+  comparativeSeries?: Record<string, ICTBar[]>;
+}
+
+export interface SMTSignal {
+  timestamp: string;
+  primarySymbol: string;
+  comparativeSymbol: string;
+  direction: "bullish" | "bearish";
+  basis: "high" | "low";
+  strength: number;
+  primaryPrice: number;
+  comparativePrice: number;
+  note: string;
 }

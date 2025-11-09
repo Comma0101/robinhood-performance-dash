@@ -19,3 +19,4 @@ yarn-error.log*
 # Data files - ignore all CSVs except the test file
 *.csv
 !test_trades.csv
+next-frontend/debug.log

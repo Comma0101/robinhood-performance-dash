@@ -2,11 +2,36 @@ import { NextResponse } from "next/server";
 import type { ICTAnalysis } from "@/lib/ict";
 import { getOrCreateAnonId } from "@/lib/session";
 import { getSupabaseServerClient, type ConversationRow } from "@/lib/supabase/serverClient";
+import { logger } from "@/lib/logger";
+import {
+  getTimeframeHorizon,
+  getTimeframeProfile,
+  lookbackBarsForTimeframe,
+  mapUiTimeframeToInterval,
+} from "@/lib/timeframes";
 
 interface ClientMessage {
   role: "user" | "assistant";
   content: string;
 }
+
+type AnalysisMode = "plan" | "chat";
+
+type AgentMetaSummary = {
+  symbol?: string;
+  interval?: string;
+  lookbackBars?: number | null;
+  barsCount?: number | null;
+  sourceInterval?: string | null;
+  range?: {
+    start: string;
+    end: string;
+  } | null;
+  generatedAt?: string | null;
+  tz?: string;
+  lastClosedBarTimeISO?: string | null;
+  includesCurrentBar?: boolean | null;
+};
 
 // Using GPT-4o (best available model from OpenAI as of 2024)
 // GPT-5 doesn't exist yet - this is the most capable model
@@ -27,7 +52,7 @@ const ictAnalyzeTool = {
         },
         interval: {
           type: "string",
-          enum: ["1min", "5min", "15min", "30min", "60min", "4h", "daily"],
+          enum: ["1min", "5min", "15min", "30min", "60min", "4h", "daily", "weekly", "monthly"],
           description: "Price bar interval to analyze.",
         },
         lookbackBars: {
@@ -49,23 +74,67 @@ const ictAnalyzeTool = {
   },
 };
 
-const buildSystemMessage = (symbol?: string, timeframe?: string) => ({
-  role: "system" as const,
-  content: [
-    "You are GPT-5, an elite trading co-pilot focused on ICT (Smart Money Concepts).",
-    `Your analysis MUST be based on the ${
-      timeframe ? timeframe : "active"
-    } chart timeframe. Explicitly state this timeframe in your response (e.g., "Based on the 4H chart...").`,
-    "Before forming any market opinion or trade plan, you MUST invoke the ict_analyze function with the active symbol and interval to inspect structure, order blocks, and liquidity.",
-    "After receiving tool data, synthesize a response that contains:",
-    "1) A machine-readable plan JSON with keys: strategy, entry, stop, targets (array), confluence (array), risk (string).",
-    "2) A short human rationale referencing BOS/ChoCH alignment, order blocks, dealing range premium/discount, liquidity, and relevant session context.",
-    "If data is missing or the tool errors, explain the gap and request a retry instead of inventing analysis.",
+interface SystemPromptOptions {
+  symbol?: string;
+  timeframe?: string;
+  mode?: AnalysisMode;
+  enforcedInterval?: string | null;
+  horizon?: string | null;
+}
+
+const buildSystemMessage = ({
+  symbol,
+  timeframe,
+  mode = "plan",
+  enforcedInterval,
+  horizon,
+}: SystemPromptOptions) => {
+  const timeframeLabel = timeframe ?? enforcedInterval ?? "active";
+  const intervalLabel = enforcedInterval ?? timeframeLabel;
+  const descriptorParts = [];
+  if (timeframe) descriptorParts.push(`${timeframe} selection`);
+  if (enforcedInterval && enforcedInterval !== timeframe) {
+    descriptorParts.push(`ICT interval ${enforcedInterval}`);
+  }
+  if (horizon) descriptorParts.push(horizon);
+  const timeframeDescriptor = descriptorParts.join(" · ") || timeframeLabel;
+  const horizonLabel = horizon ?? "selected timeframe window";
+  const instructions: string[] = [
+    "You are GPT-5, an ICT/SMC trading copilot.",
+    `Timeframe discipline: Keep every observation inside the ${timeframeDescriptor} window. The first sentence MUST read "Based on the ${intervalLabel} chart..." and you may not widen context beyond this horizon.`,
+    "Tool policy:",
+    "- Do NOT mention BOS/ChoCH/MSS, order blocks, fair value gaps, liquidity, or OHLCV stats unless you have fresh ict_analyze data from this turn.",
+    "- When you need structure, liquidity, PD%, PDH/PDL, or the latest OHLCV, call ict_analyze with the active symbol + interval and rely solely on its payload.",
+    "Freshness: use the latest CLOSED bar only. If the tool payload appears older than the current closed bar for the active interval, ask the user to refresh instead of inferring.",
+    "Session hygiene: use sessions.killZones from ict_analyze; if no kill zone is active, flag reduced setup quality unless the user explicitly overrides.",
+  ];
+
+  if (mode === "plan") {
+    instructions.push(
+      "After receiving tool data, respond with:",
+      `1) A machine-readable plan JSON with keys: timeframe (must equal "${intervalLabel}"), horizon (describe ${horizonLabel}), strategy, entry, stop, targets (array), confluence (array), risk (string).`,
+      "2) A concise rationale referencing BOS/ChoCH alignment, order blocks, dealing range premium/discount, liquidity, and session context while reaffirming the active timeframe."
+    );
+  } else {
+    instructions.push(
+      "Respond conversationally and do NOT emit plan JSON unless the user explicitly requests a trade plan.",
+      "Reference BOS/ChoCH, order blocks, dealing range, liquidity, and sessions as supportive context while keeping the tone collaborative.",
+      "Always cite the latest closed bar's timestamp plus OHLC and volume from the tool payload to ground your commentary."
+    );
+  }
+
+  instructions.push(
+    "If ict_analyze fails or returns missing fields, explain the gap and request a refresh instead of guessing.",
     symbol
       ? `Workspace symbol context: ${symbol}. Tailor bias observations to this instrument.`
-      : "No active symbol provided; politely request the symbol before proceeding.",
-  ].join(" "),
-});
+      : "No active symbol provided; politely request the symbol before proceeding."
+  );
+
+  return {
+    role: "system" as const,
+    content: instructions.join(" "),
+  };
+};
 
 export async function POST(request: Request) {
   try {
@@ -77,7 +146,25 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { messages, symbol, timeframe, conversationId } = body ?? {};
+    const {
+      messages,
+      symbol,
+      timeframe,
+      conversationId,
+      analysisMode: requestedMode,
+      includeCurrentBar: includeCurrentBarInput,
+    } = body ?? {};
+    const analysisMode: AnalysisMode = requestedMode === "chat" ? "chat" : "plan";
+    const includeCurrentBar = includeCurrentBarInput === true;
+    let ictMetaSummary: AgentMetaSummary | null = null;
+    const mappedInterval = mapUiTimeframeToInterval(timeframe);
+    const timeframeProfile = getTimeframeProfile(timeframe);
+    const desiredInterval = timeframeProfile?.interval ?? mappedInterval ?? null;
+    const desiredLookbackBars =
+      timeframeProfile?.lookbackBars ?? lookbackBarsForTimeframe(timeframe);
+    const timeframeHorizon = getTimeframeHorizon(timeframe) ?? timeframeProfile?.horizon ?? null;
+    const timeframeSourceInterval = timeframeProfile?.sourceInterval ?? null;
+    const timeframeRangeLabel = timeframeProfile?.rangeLabel ?? null;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return NextResponse.json(
@@ -137,16 +224,31 @@ export async function POST(request: Request) {
     }
 
     const mergedHistory = [...serverHistory, ...normalizedHistory].slice(-50);
-    const systemMessage = buildSystemMessage(symbol, timeframe);
+    const systemMessage = buildSystemMessage({
+      symbol,
+      timeframe,
+      mode: analysisMode,
+      enforcedInterval: desiredInterval,
+      horizon: timeframeHorizon,
+    });
     const openAiMessages = [systemMessage, ...mergedHistory];
 
     // Log conversation being sent
-    console.log("=== GPT API CALL 1: INITIAL REQUEST ===");
-    console.log("Model:", DEFAULT_MODEL);
-    console.log("Symbol:", symbol, "| Timeframe:", timeframe);
-    console.log("Message count:", normalizedHistory.length);
-    console.log("Last user message:", normalizedHistory[normalizedHistory.length - 1]?.content);
-    console.log("System message preview:", systemMessage.content.substring(0, 150) + "...");
+    logger.section("=== GPT API CALL 1: INITIAL REQUEST ===");
+    logger.log("Model:", DEFAULT_MODEL);
+    logger.log("Context:", {
+      symbol,
+      timeframe,
+      enforcedInterval: desiredInterval,
+      lookbackBars: desiredLookbackBars,
+      horizon: timeframeHorizon,
+      sourceInterval: timeframeSourceInterval,
+      range: timeframeRangeLabel,
+      messageCount: normalizedHistory.length,
+      includeCurrentBar,
+    });
+    logger.log("Last user message:", normalizedHistory[normalizedHistory.length - 1]?.content);
+    logger.log("System message preview:", systemMessage.content.substring(0, 150) + "...");
 
     const firstPassPayload = {
       model: DEFAULT_MODEL,
@@ -157,7 +259,7 @@ export async function POST(request: Request) {
       max_tokens: 2000, // Increased from 900 for longer responses
     };
 
-    console.log("Request payload:", JSON.stringify(firstPassPayload, null, 2));
+    logger.debug("Request payload:", firstPassPayload);
 
     const firstPassResponse = await fetch(
       "https://api.openai.com/v1/chat/completions",
@@ -188,10 +290,12 @@ export async function POST(request: Request) {
     const firstChoice = firstPassData?.choices?.[0];
     const toolCalls = firstChoice?.message?.tool_calls ?? [];
 
-    console.log("=== GPT API RESPONSE 1 ===");
-    console.log("Finish reason:", firstChoice?.finish_reason);
-    console.log("Tool calls requested:", toolCalls.length);
-    console.log("Usage:", firstPassData?.usage);
+    logger.section("=== GPT API RESPONSE 1 ===");
+    logger.log("Response details:", {
+      finishReason: firstChoice?.finish_reason,
+      toolCallsRequested: toolCalls.length,
+      usage: firstPassData?.usage
+    });
 
     // If model didn't request tool, return direct response (casual chat)
     if (toolCalls.length === 0) {
@@ -199,8 +303,8 @@ export async function POST(request: Request) {
         firstChoice?.message?.content?.trim() ??
         "The model did not provide a response.";
 
-      console.log("Direct response (no tool call):", directContent.substring(0, 200));
-      console.log("=== END REQUEST ===\n");
+      logger.log("Direct response (no tool call):", directContent.substring(0, 200));
+      logger.section("=== END REQUEST ===");
 
       // Persist if conversation is active
       if (conversationId && conversation) {
@@ -215,7 +319,7 @@ export async function POST(request: Request) {
         } catch {}
       }
 
-      return NextResponse.json({ reply: directContent, usage: firstPassData?.usage });
+      return NextResponse.json({ reply: directContent, usage: firstPassData?.usage, ictMeta: ictMetaSummary });
     }
 
     const toolCall = toolCalls[0];
@@ -240,12 +344,51 @@ export async function POST(request: Request) {
     }
 
     const toolSymbol = (toolArgs.symbol as string | undefined) ?? symbol;
-    const interval = toolArgs.interval as string | undefined;
-    const lookbackBars = toolArgs.lookbackBars as number | undefined;
+    let interval = toolArgs.interval as string | undefined;
+    // Enforce the interval derived from the UI timeframe when available
+    if (desiredInterval && interval !== desiredInterval) {
+      logger.log("Enforcing ICT interval from timeframe selection", {
+        requested: interval,
+        enforced: desiredInterval,
+      });
+      interval = desiredInterval;
+    }
+    const incomingLookbackBars =
+      typeof toolArgs.lookbackBars === "number"
+        ? (toolArgs.lookbackBars as number)
+        : undefined;
+    const fallbackLookback =
+      interval === "1min"
+        ? 60
+        : interval === "5min"
+        ? 72
+        : interval === "15min"
+        ? 288
+        : interval === "30min"
+        ? 336
+        : interval === "60min"
+        ? 336
+        : interval === "4h"
+        ? 180
+        : interval === "weekly"
+        ? 12
+        : interval === "monthly"
+        ? 6
+        : 365;
+    const lookbackBars =
+      (typeof desiredLookbackBars === "number" ? desiredLookbackBars : undefined) ??
+      incomingLookbackBars ??
+      fallbackLookback;
     const sessionInput = toolArgs.session as "NY" | "LDN" | undefined;
 
-    console.log("=== TOOL CALL: ict_analyze ===");
-    console.log("Args:", { symbol: toolSymbol, interval, lookbackBars, session: sessionInput });
+    logger.section("=== TOOL CALL: ict_analyze ===");
+    logger.log("Args:", {
+      symbol: toolSymbol,
+      interval,
+      lookbackBars,
+      session: sessionInput,
+      includeCurrentBar,
+    });
 
     if (!toolSymbol || !interval) {
       return NextResponse.json(
@@ -265,8 +408,21 @@ export async function POST(request: Request) {
     if (sessionInput) {
       ictUrl.searchParams.set("session", sessionInput);
     }
+    if (includeCurrentBar) {
+      ictUrl.searchParams.set("includeCurrentBar", "true");
+    }
 
-    console.log("Fetching ICT data from:", ictUrl.pathname + ictUrl.search);
+    logger.section("=== ICT DATA REQUEST ===");
+    logger.log("Fetching ICT data from:", ictUrl.pathname + ictUrl.search);
+    logger.log("ICT Analysis Parameters:", {
+      symbol: toolSymbol,
+      interval,
+      lookbackBars,
+      session: sessionInput,
+      timeframe: timeframe,
+      desiredInterval,
+      includeCurrentBar,
+    });
 
     const ictResponse = await fetch(ictUrl.toString(), { cache: "no-store" });
     if (!ictResponse.ok) {
@@ -281,9 +437,35 @@ export async function POST(request: Request) {
     }
 
     const ictPayload = (await ictResponse.json()) as ICTAnalysis;
+    ictMetaSummary = {
+      symbol: ictPayload.meta?.symbol,
+      interval: ictPayload.meta?.interval,
+      lookbackBars: ictPayload.meta?.lookbackBars ?? null,
+      barsCount: ictPayload.meta?.barsCount ?? null,
+      sourceInterval: ictPayload.meta?.sourceInterval ?? null,
+      range: ictPayload.meta?.range ?? null,
+      generatedAt: ictPayload.meta?.generatedAt ?? null,
+      tz: ictPayload.meta?.tz,
+      lastClosedBarTimeISO: ictPayload.meta?.lastClosedBarTimeISO ?? null,
+      includesCurrentBar: ictPayload.meta?.includesCurrentBar ?? includeCurrentBar,
+    };
 
-    console.log("=== ICT DATA RECEIVED ===");
-    console.log("Structure:", {
+    logger.section("=== ICT DATA RECEIVED ===");
+    logger.log("Data Metadata:", {
+      symbol: ictPayload.meta?.symbol,
+      interval: ictPayload.meta?.interval,
+      sourceInterval: ictPayload.meta?.sourceInterval,
+      dateRangeStart: ictPayload.meta?.range?.start,
+      dateRangeEnd: ictPayload.meta?.range?.end,
+      lastBarTime: ictPayload.meta?.lastBar?.time,
+      lastClosedBarTime: ictPayload.meta?.lastClosedBarTimeISO,
+      dateRangeSpan: ictPayload.meta?.range
+        ? `${ictPayload.meta.range.start} to ${ictPayload.meta.range.end}`
+        : 'N/A',
+      barsCount: ictPayload.meta?.barsCount,
+      lookbackBars: ictPayload.meta?.lookbackBars
+    });
+    logger.log("Structure:", {
       bias: ictPayload.structure?.bias,
       lastBosAt: ictPayload.structure?.lastBosAt,
       lastChoChAt: ictPayload.structure?.lastChoChAt,
@@ -292,7 +474,7 @@ export async function POST(request: Request) {
       events: ictPayload.structure?.events?.length || 0
     });
 
-    console.log("Order Blocks:", ictPayload.orderBlocks?.map(ob => ({
+    logger.log("Order Blocks:", ictPayload.orderBlocks?.map(ob => ({
       type: ob.type,
       origin: ob.origin,
       candleTime: ob.candleTime,
@@ -302,26 +484,26 @@ export async function POST(request: Request) {
       isValid: ob.isValid
     })));
 
-    console.log("Dealing Range:", {
+    logger.log("Dealing Range:", {
       high: ictPayload.dealingRange?.high,
       low: ictPayload.dealingRange?.low,
       eq: ictPayload.dealingRange?.eq,
       pdPercent: ictPayload.dealingRange?.pdPercent
     });
 
-    console.log("Liquidity Zones:", {
+    logger.log("Liquidity Zones:", {
       equalHighs: ictPayload.liquidity?.equalHighs?.length || 0,
       equalLows: ictPayload.liquidity?.equalLows?.length || 0,
       externalHighs: ictPayload.liquidity?.externalHighs?.length || 0,
       externalLows: ictPayload.liquidity?.externalLows?.length || 0,
     });
 
-    console.log("FVG Count:", ictPayload.fvg?.length || 0);
-    console.log("Sessions:", ictPayload.sessions ? "Yes" : "No");
+    logger.log("FVG Count:", ictPayload.fvg?.length || 0);
+    logger.log("Sessions:", ictPayload.sessions ? "Yes" : "No");
 
     // Log the FULL ICT payload that's being sent to GPT
-    console.log("=== FULL ICT PAYLOAD (what GPT sees) ===");
-    console.log(JSON.stringify(ictPayload, null, 2));
+    logger.section("=== FULL ICT PAYLOAD (what GPT sees) ===");
+    logger.debug("Complete ICT Analysis", ictPayload);
 
     const followUpMessages = [
       ...openAiMessages,
@@ -333,8 +515,8 @@ export async function POST(request: Request) {
       },
     ];
 
-    console.log("=== GPT API CALL 2: WITH ICT DATA ===");
-    console.log("Total messages in context:", followUpMessages.length);
+    logger.section("=== GPT API CALL 2: WITH ICT DATA ===");
+    logger.log("Total messages in context:", followUpMessages.length);
 
     const secondPassPayload = {
       model: DEFAULT_MODEL,
@@ -374,11 +556,13 @@ export async function POST(request: Request) {
       secondPassData?.choices?.[0]?.message?.content?.trim() ??
       "No response generated after ICT analysis.";
 
-    console.log("=== GPT API RESPONSE 2 ===");
-    console.log("Finish reason:", secondPassData?.choices?.[0]?.finish_reason);
-    console.log("Usage:", secondPassData?.usage);
-    console.log("Reply preview:", finalReply.substring(0, 200) + "...");
-    console.log("=== END REQUEST ===\n");
+    logger.section("=== GPT API RESPONSE 2 ===");
+    logger.log("Response details:", {
+      finishReason: secondPassData?.choices?.[0]?.finish_reason,
+      usage: secondPassData?.usage,
+      replyPreview: finalReply.substring(0, 200) + "..."
+    });
+    logger.section("=== END REQUEST ===");
 
     // Calculate combined token usage from both API calls
     const combinedUsage = {
@@ -387,7 +571,7 @@ export async function POST(request: Request) {
       total_tokens: (firstPassData?.usage?.total_tokens || 0) + (secondPassData?.usage?.total_tokens || 0),
     };
 
-    console.log("Combined usage for this conversation turn:", combinedUsage);
+    logger.log("Combined usage for this conversation turn:", combinedUsage);
 
     // Enforce per-conversation token budget if applicable
     if (conversationId && conversation) {
@@ -417,7 +601,7 @@ export async function POST(request: Request) {
         .eq('id', conversationId);
     }
 
-    return NextResponse.json({ reply: finalReply, usage: combinedUsage });
+    return NextResponse.json({ reply: finalReply, usage: combinedUsage, ictMeta: ictMetaSummary });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unexpected error occurred.";

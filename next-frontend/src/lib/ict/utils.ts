@@ -187,3 +187,66 @@ export const minBy = <T>(
 
 export const severityClamp = (value: number, min = 0, max = 1): number =>
   Math.max(min, Math.min(max, value));
+
+export const computeAverageTrueRange = (
+  bars: ICTBar[],
+  period = 14
+): number[] => {
+  if (bars.length === 0) {
+    return [];
+  }
+
+  const atr: number[] = new Array(bars.length).fill(0);
+  let previousClose = bars[0].close;
+
+  for (let i = 0; i < bars.length; i += 1) {
+    const bar = bars[i];
+    const range = bar.high - bar.low;
+    const highGap = Math.abs(bar.high - previousClose);
+    const lowGap = Math.abs(bar.low - previousClose);
+    const trueRange = Math.max(range, highGap, lowGap);
+
+    if (i === 0) {
+      atr[i] = trueRange;
+    } else if (i < period) {
+      atr[i] = (atr[i - 1] * i + trueRange) / (i + 1);
+    } else {
+      atr[i] = (atr[i - 1] * (period - 1) + trueRange) / period;
+    }
+
+    previousClose = bar.close;
+  }
+
+  return atr;
+};
+
+export const inferPricePrecision = (symbol: string, price: number): number => {
+  const fxLike = /USD|EUR|JPY|GBP|AUD|NZD|CAD/.test(symbol);
+  if (price < 1) {
+    return 4;
+  }
+  if (fxLike || price < 100) {
+    return 4;
+  }
+  if (price < 500) {
+    return 3;
+  }
+  return 2;
+};
+
+export const roundToPrecision = (value: number, decimals: number): number =>
+  Number(value.toFixed(decimals));
+
+export const isBarFullyClosed = (
+  barTime: string,
+  now: Date,
+  intervalMs: number
+): boolean => {
+  const barDate = toTimeZoneDate(barTime, ICT_TIME_ZONE);
+  if (Number.isNaN(barDate.getTime())) {
+    return false;
+  }
+  const elapsed = now.getTime() - barDate.getTime();
+  const buffer = intervalMs * 0.05;
+  return elapsed >= intervalMs - buffer;
+};

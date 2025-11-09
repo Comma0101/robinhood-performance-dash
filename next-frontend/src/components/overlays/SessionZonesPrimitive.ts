@@ -11,11 +11,16 @@ interface SessionZoneData {
 }
 
 const INTRADAY_INTERVALS = new Set([
+  "1m",
   "1min",
+  "5m",
   "5min",
+  "15m",
   "15min",
+  "30m",
   "30min",
   "60min",
+  "1h",
   "4h",
 ]);
 
@@ -56,6 +61,8 @@ export class SessionZonesPrimitive {
     // Convert sessions to zone data with chart times
     const zones: SessionZoneData[] = [];
 
+    console.log(`[SessionZonesPrimitive] paneViews called with ${this._sessions.length} sessions, interval: ${this._interval}`);
+
     for (const session of this._sessions) {
       try {
         const startTime = toChartTime(session.start, this._interval);
@@ -77,6 +84,11 @@ export class SessionZonesPrimitive {
       }
     }
 
+    console.log(`[SessionZonesPrimitive] Converted to ${zones.length} zones`);
+    if (zones.length > 0) {
+      console.log(`[SessionZonesPrimitive] Sample zone:`, zones[0]);
+    }
+
     const chart = this._chart;
 
     return [
@@ -89,48 +101,30 @@ export class SessionZonesPrimitive {
               const width = scope.mediaSize.width;
               const height = scope.mediaSize.height;
 
-              console.log(
-                "[SessionZonesPrimitive] Draw called with zones:",
-                zones.length
-              );
-              console.log("[SessionZonesPrimitive] Using dimensions:", {
-                width,
-                height,
-              });
-
               const timeScale = chart.timeScale();
               const visibleRange = timeScale.getVisibleLogicalRange();
               if (!visibleRange) {
-                console.log("[SessionZonesPrimitive] No visible range");
+                console.log(`[SessionZonesPrimitive] No visible range, skipping draw`);
                 return;
               }
+
+              console.log(`[SessionZonesPrimitive] Drawing ${zones.length} zones`);
+              let drawnCount = 0;
 
               for (const zone of zones) {
                 try {
                   // Get x coordinates for start and end times
-                  const x1 = timeScale.timeToCoordinate(zone.startTime);
-                  const x2 = timeScale.timeToCoordinate(zone.endTime);
+                  const x1Raw = timeScale.timeToCoordinate(zone.startTime);
+                  const x2Raw = timeScale.timeToCoordinate(zone.endTime);
 
-                  console.log("[SessionZonesPrimitive] Zone coordinates:", {
-                    name: zone.name,
-                    startTime: zone.startTime,
-                    endTime: zone.endTime,
-                    x1,
-                    x2,
-                  });
+                  // Handle zones that extend beyond the chart data
+                  // If start is null (before chart data), use left edge
+                  // If end is null (after chart data), use right edge
+                  let x1 = x1Raw !== null ? x1Raw : 0;
+                  let x2 = x2Raw !== null ? x2Raw : width;
 
-                  if (x1 === null || x2 === null) {
-                    console.log(
-                      "[SessionZonesPrimitive] Null coordinates for:",
-                      zone.name
-                    );
-                    continue;
-                  }
+                  // Skip zones that are completely outside visible area
                   if (x2 <= 0 || x1 >= width) {
-                    console.log(
-                      "[SessionZonesPrimitive] Zone outside visible area:",
-                      zone.name
-                    );
                     continue;
                   }
 
@@ -149,16 +143,8 @@ export class SessionZonesPrimitive {
                     .replace(")", `, ${opacity})`)
                     .replace("rgb", "rgba");
 
-                  console.log("[SessionZonesPrimitive] Drawing rectangle:", {
-                    name: zone.name,
-                    x: visibleX1,
-                    y: 0,
-                    width: zoneWidth,
-                    height,
-                    fillStyle: ctx.fillStyle,
-                  });
-
                   ctx.fillRect(visibleX1, 0, zoneWidth, height);
+                  drawnCount++;
 
                   // Draw label
                   ctx.fillStyle = zone.color;
@@ -195,6 +181,8 @@ export class SessionZonesPrimitive {
                   );
                 }
               }
+
+              console.log(`[SessionZonesPrimitive] Actually drew ${drawnCount} zones out of ${zones.length}`);
             });
           },
         }),

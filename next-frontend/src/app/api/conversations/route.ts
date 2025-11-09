@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const userId = await getOrCreateAnonId();
     const body = await request.json().catch(() => ({}));
     const title = typeof body?.title === 'string' ? body.title : null;
-    const tokenBudget = Number.isFinite(body?.tokenBudget) ? Number(body.tokenBudget) : 40000;
+    const tokenBudget = Number.isFinite(body?.tokenBudget) ? Number(body.tokenBudget) : 80000;
 
     const supabase = getSupabaseServerClient();
     const { data, error } = await supabase

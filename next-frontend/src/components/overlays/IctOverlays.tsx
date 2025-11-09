@@ -14,11 +14,16 @@ import { SessionZonesPrimitive } from "./SessionZonesPrimitive";
 import { StructureLinesPrimitive } from "./StructureLinesPrimitive";
 
 const INTRADAY_INTERVALS = new Set([
+  "1m",
   "1min",
+  "5m",
   "5min",
+  "15m",
   "15min",
+  "30m",
   "30min",
   "60min",
+  "1h",
   "4h",
 ]);
 
@@ -165,17 +170,15 @@ const IctOverlays: React.FC<IctOverlaysProps> = ({
 
     // Only show sessions on intraday timeframes
     if (!INTRADAY_INTERVALS.has(interval)) {
-      console.log(
-        "[IctOverlays] Skipping sessions - not an intraday timeframe:",
-        interval
-      );
+      console.log(`[IctOverlays] Interval ${interval} not in INTRADAY_INTERVALS, skipping sessions`);
       return;
     }
 
-    console.log(
-      "[IctOverlays] Processing session kill zones:",
-      analysis.sessions.killZones
-    );
+    console.log(`[IctOverlays] Processing ${analysis.sessions.killZones.length} kill zones for interval: ${interval}`);
+    if (analysis.sessions.killZones.length > 0) {
+      console.log(`[IctOverlays] First kill zone:`, analysis.sessions.killZones[0]);
+      console.log(`[IctOverlays] Last kill zone:`, analysis.sessions.killZones[analysis.sessions.killZones.length - 1]);
+    }
 
     try {
       const pane = chart.panes()[0];
@@ -190,6 +193,7 @@ const IctOverlays: React.FC<IctOverlaysProps> = ({
           analysis.sessions.killZones,
           interval
         );
+        console.log(`[IctOverlays] ✓ Updated session zones primitive with ${analysis.sessions.killZones.length} zones`);
       } else {
         sessionPrimitiveRef.current = new SessionZonesPrimitive(
           analysis.sessions.killZones,
@@ -199,7 +203,7 @@ const IctOverlays: React.FC<IctOverlaysProps> = ({
           "rgb(148, 163, 184)"
         );
         pane.attachPrimitive(sessionPrimitiveRef.current);
-        console.log("[IctOverlays] ✓ Attached session zones primitive");
+        console.log(`[IctOverlays] ✓ Attached session zones primitive with ${analysis.sessions.killZones.length} zones`);
 
         // Force chart to update/redraw
         chart.timeScale().applyOptions({});
@@ -272,30 +276,45 @@ const IctOverlays: React.FC<IctOverlaysProps> = ({
 
         const blockType = block.type === "demand" ? "Demand" : "Supply";
         const zoneLabel = block.zoneType === "main" ? "Main" : "Sub";
-        const label = `${blockType} ${zoneLabel} (${block.origin})`;
+        const classification = block.classification
+          ? `/${block.classification}`
+          : "";
+        const label = `${blockType} ${zoneLabel} (${block.origin}${classification})`;
 
-        // Use refined range if available, otherwise use full range
-        const displayRange = block.refined || block.range;
-        const rangeToShow = block.refined ? displayRange : block.range;
+        const useMeanThreshold = block.refined?.method === "mean_threshold";
+        const displayRange =
+          block.refined && !useMeanThreshold ? block.refined : block.range;
 
-        priceLines.push(
-          series.createPriceLine({
-            price: rangeToShow.low,
-            color: baseColor,
-            lineWidth: block.zoneType === "main" ? 2 : 1,
-            lineStyle: block.refined ? LineStyle.Solid : LineStyle.Dashed,
-            title: `${label} Low`,
-          })
-        );
-        priceLines.push(
-          series.createPriceLine({
-            price: rangeToShow.high,
-            color: baseColor,
-            lineWidth: block.zoneType === "main" ? 2 : 1,
-            lineStyle: block.refined ? LineStyle.Solid : LineStyle.Dashed,
-            title: `${label} High`,
-          })
-        );
+        if (useMeanThreshold && block.refined?.mean) {
+          priceLines.push(
+            series.createPriceLine({
+              price: block.refined.mean,
+              color: baseColor,
+              lineWidth: 2,
+              lineStyle: LineStyle.Dotted,
+              title: `${label} MT`,
+            })
+          );
+        } else {
+          priceLines.push(
+            series.createPriceLine({
+              price: displayRange.low,
+              color: baseColor,
+              lineWidth: block.zoneType === "main" ? 2 : 1,
+              lineStyle: block.refined ? LineStyle.Solid : LineStyle.Dashed,
+              title: `${label} Low`,
+            })
+          );
+          priceLines.push(
+            series.createPriceLine({
+              price: displayRange.high,
+              color: baseColor,
+              lineWidth: block.zoneType === "main" ? 2 : 1,
+              lineStyle: block.refined ? LineStyle.Solid : LineStyle.Dashed,
+              title: `${label} High`,
+            })
+          );
+        }
       }
     }
 
@@ -323,6 +342,15 @@ const IctOverlays: React.FC<IctOverlaysProps> = ({
             lineWidth: 1,
             lineStyle: LineStyle.Dashed,
             title: `${label} High`,
+          })
+        );
+        priceLines.push(
+          series.createPriceLine({
+            price: fvg.ce,
+            color,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            title: `${label} CE`,
           })
         );
       }

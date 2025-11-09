@@ -2,6 +2,7 @@ import { ICTAnalysis, ICTAnalysisOptions, ICTBar } from "./types";
 import {
   ICT_TIME_ZONE,
   getNyDateParts,
+  inferPricePrecision,
   padNumber,
   sortBarsAscending,
   takeRecentBars,
@@ -13,6 +14,7 @@ import {
   detectFairValueGaps,
   detectLiquidity,
   detectOrderBlocks,
+  detectSMTSignals,
   detectStructure,
   detectSwings,
 } from "./detectors";
@@ -122,6 +124,8 @@ export const analyzeICT = (
   const liquidityMode = options.liquidityMode ?? "both";
   const staticLiquiditySensitivity = options.staticLiquiditySensitivity ?? 0.3;
   const dynamicLiquiditySensitivity = options.dynamicLiquiditySensitivity ?? 1.0;
+  const structureAtrPeriod = options.structureAtrPeriod ?? 14;
+  const structureDisplacementMultiplier = options.structureDisplacementMultiplier ?? 0.25;
 
   const sorted = sortBarsAscending(bars);
   const scopedBars = takeRecentBars(sorted, lookback);
@@ -148,9 +152,13 @@ export const analyzeICT = (
         equalLows: [],
         externalHighs: [],
         externalLows: [],
+        relativeEqualHighs: [],
+        relativeEqualLows: [],
+        stacks: [],
       },
       sessions: { killZones: [] },
       levels: {},
+      smtSignals: [],
     };
   }
 
@@ -159,7 +167,10 @@ export const analyzeICT = (
     minorPivotPeriod,
   });
 
-  const structure = detectStructure(scopedBars, swings);
+  const structure = detectStructure(scopedBars, swings, {
+    displacementAtrPeriod: structureAtrPeriod,
+    displacementMultiplier: structureDisplacementMultiplier,
+  });
 
   const trimmedStructure = {
     ...structure,
@@ -169,6 +180,8 @@ export const analyzeICT = (
     },
     events: trimEnd(structure.events, 20),
   };
+
+  const dealingRange = computeDealingRange(scopedBars, structure.swings);
 
   const orderBlocks = trimEnd(
     detectOrderBlocks(scopedBars, structure, {
@@ -189,12 +202,11 @@ export const analyzeICT = (
     30
   );
 
-  const dealingRange = computeDealingRange(scopedBars, structure.swings);
-
   const liquidity = detectLiquidity(structure.swings, liquidityTolerance, {
     mode: liquidityMode,
     staticSensitivity: staticLiquiditySensitivity,
     dynamicSensitivity: dynamicLiquiditySensitivity,
+    dealingRange,
   });
 
   const sessions = computeSessions(scopedBars, session);
@@ -203,17 +215,28 @@ export const analyzeICT = (
   const rangeStart = scopedBars[0]?.time ?? "";
   const rangeEnd = scopedBars[scopedBars.length - 1]?.time ?? "";
   const lastBar = scopedBars[scopedBars.length - 1] ?? null;
+  const pricePrecision = inferPricePrecision(options.symbol, lastBar?.close ?? 0);
+  const smtSignals = detectSMTSignals(
+    scopedBars,
+    options.comparativeSeries ?? {},
+    {
+      primarySymbol: options.symbol,
+    }
+  );
 
   return {
     meta: {
       symbol: options.symbol,
       interval: options.interval,
       tz: ICT_TIME_ZONE,
+      exchangeTZ: ICT_TIME_ZONE,
       range: {
         start: rangeStart,
         end: rangeEnd,
       },
       lastBar,
+      lastClosedBarTimeISO: lastBar?.time,
+      pricePrecision,
     },
     structure: trimmedStructure,
     dealingRange,
@@ -222,5 +245,6 @@ export const analyzeICT = (
     liquidity,
     sessions,
     levels,
+    smtSignals,
   };
 };

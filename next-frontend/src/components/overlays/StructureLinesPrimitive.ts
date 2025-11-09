@@ -14,11 +14,16 @@ interface StructureLineData {
 }
 
 const INTRADAY_INTERVALS = new Set([
+  "1m",
   "1min",
+  "5m",
   "5min",
+  "15m",
   "15min",
+  "30m",
   "30min",
   "60min",
+  "1h",
   "4h",
 ]);
 

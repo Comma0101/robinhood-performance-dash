@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { makeNyDateString, toTimeZoneDate } from "@/lib/ict/utils";
 
 interface AlphaVantageBar {
   time: string;
@@ -126,56 +127,72 @@ export async function GET(request: Request) {
     let endTime: number;
 
     if (holdingPeriodDays <= 5) {
-      // Intraday trade - expand to include full trading hours
-      const tradeStartDate = new Date(start);
-      const dayStart = new Date(
-        tradeStartDate.getFullYear(),
-        tradeStartDate.getMonth(),
-        tradeStartDate.getDate()
-      );
+      // Intraday trade - expand to include full New York trading days
+      const nyStartMidnight = toTimeZoneDate(
+        makeNyDateString(start, 0, 0, 0)
+      ).getTime();
+      const nyEndNextDayMidnight = toTimeZoneDate(
+        makeNyDateString(new Date(end.getTime() + 24 * 60 * 60 * 1000), 0, 0, 0)
+      ).getTime();
 
-      const tradeEndDate = new Date(end);
-      const dayEnd = new Date(
-        tradeEndDate.getFullYear(),
-        tradeEndDate.getMonth(),
-        tradeEndDate.getDate() + 1
-      );
-
-      startTime = dayStart.getTime();
-      endTime = dayEnd.getTime();
+      startTime = nyStartMidnight;
+      endTime = nyEndNextDayMidnight;
     } else {
       // Multi-day trade - use exact range
       startTime = start.getTime();
       endTime = end.getTime();
     }
 
+    const allBars: AlphaVantageBar[] = [];
+
     for (const [timestamp, values] of Object.entries(timeSeries)) {
-      const barTime = new Date(timestamp).getTime();
+      const nyDate = toTimeZoneDate(timestamp);
+      const barTime = nyDate.getTime();
+
+      if (Number.isNaN(barTime)) {
+        continue;
+      }
+
+      const typedValues = values as {
+        "1. open": string;
+        "2. high": string;
+        "3. low": string;
+        "4. close": string;
+        "5. volume": string;
+      };
+
+      const parsedBar: AlphaVantageBar = {
+        time: timestamp,
+        open: parseFloat(typedValues["1. open"]),
+        high: parseFloat(typedValues["2. high"]),
+        low: parseFloat(typedValues["3. low"]),
+        close: parseFloat(typedValues["4. close"]),
+        volume: parseFloat(typedValues["5. volume"]),
+      };
+
+      allBars.push(parsedBar);
 
       // Include bars within the date range
       if (barTime >= startTime && barTime < endTime) {
-        const typedValues = values as {
-          "1. open": string;
-          "2. high": string;
-          "3. low": string;
-          "4. close": string;
-          "5. volume": string;
-        };
-
-        bars.push({
-          time: timestamp,
-          open: parseFloat(typedValues["1. open"]),
-          high: parseFloat(typedValues["2. high"]),
-          low: parseFloat(typedValues["3. low"]),
-          close: parseFloat(typedValues["4. close"]),
-          volume: parseFloat(typedValues["5. volume"]),
-        });
+        bars.push(parsedBar);
       }
+    }
+
+    // Fallback: if range filter produced no data (e.g., due to timezone drift or API quirks),
+    // return the most recent bars so the chart has something to render.
+    if (bars.length === 0 && allBars.length > 0) {
+      allBars.sort(
+        (a, b) =>
+          toTimeZoneDate(a.time).getTime() - toTimeZoneDate(b.time).getTime()
+      );
+      const fallbackSample = allBars.slice(-2000);
+      bars.push(...fallbackSample);
     }
 
     // Sort by time (oldest first)
     bars.sort(
-      (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()
+      (a, b) =>
+        toTimeZoneDate(a.time).getTime() - toTimeZoneDate(b.time).getTime()
     );
 
     return NextResponse.json({
