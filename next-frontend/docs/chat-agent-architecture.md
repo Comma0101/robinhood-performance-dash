@@ -1,14 +1,15 @@
 # Chat Agent Architecture (GPT-5 Trade Chat)
 
-This document describes the chat agent that powers the “GPT-5 Trade Chat” panel. It explains the agent’s flow, the ICT analysis tool, data contracts, persistence, and how timeframe data is enforced. It is intended to be sufficient for a new engineer to work on the agent without reading source code.
+This document describes the chat agent that powers the "GPT-5 Trade Chat" panel. It explains the agent's flow, the ICT analysis tool, multi-timeframe support, data contracts, persistence, and how timeframe data is enforced. It is intended to be sufficient for a new engineer to work on the agent without reading source code.
 
 ## Overview
-- Purpose: Provide precise, ICT-grounded trading guidance for the active chart symbol and selected timeframe.
-- Pattern: Two-pass Chat Completions with a single deterministic tool (`ict_analyze`).
+- Purpose: Provide precise, ICT-grounded trading guidance using multi-timeframe top-down analysis.
+- Pattern: Two-pass Chat Completions with a single deterministic tool (`ict_analyze`) plus optional multi-timeframe context.
 - Components:
-  - Frontend: `ChartView` sends messages + UI context (symbol, timeframe).
-  - Chat Orchestrator: `/api/chat` composes system prompt, enforces timeframe, calls the ICT tool, then returns a final reply.
+  - Frontend: `ChartView` sends messages + UI context (symbol, timeframe) + optional multi-timeframe analyses from Bias Stack Sandbox.
+  - Chat Orchestrator: `/api/chat` composes system prompt (with multi-TF awareness), enforces timeframe, calls the ICT tool, injects multi-TF context, then returns a final reply.
   - ICT Service: `/api/ict` aggregates price history and computes deterministic ICT features (structure, order blocks, FVG, liquidity, sessions, dealing range).
+  - Bias Stack Sandbox: `BiasSelectorPlayground` component fetches all 5 timeframes (Daily, 4H, 15m, 5m, 1m) and evaluates ICT methodology compliance.
   - Conversations API: `/api/conversations` and `/api/conversations/[id]/messages` persist threads and messages in Supabase.
 
 ## Model
@@ -47,6 +48,74 @@ This document describes the chat agent that powers the “GPT-5 Trade Chat” pa
 - `POST /api/chat` loads this profile, enforces the mapped interval, and always forwards the configured `lookbackBars` to the ICT service. If the model requests a different interval or omits `lookbackBars`, the server overrides it and logs the enforced values.
 - The system prompt now explicitly mentions the enforced interval + horizon and requires the plan JSON to echo that timeframe so the assistant cannot widen its context.
 
+## Multi-Timeframe Support (Bias Stack Integration)
+
+The agent supports **true ICT top-down analysis** by leveraging the Bias Stack Sandbox component to provide analyses across all relevant timeframes.
+
+### How It Works
+
+1. **User triggers Auto-fill**: In the Bias Stack Sandbox (visible in the chat panel), the user clicks "Auto-fill from ICT" which fetches ICT analyses for:
+   - Daily (higher timeframe draw)
+   - 4H (higher timeframe draw)
+   - 15min (bias setter - only TF that can flip intraday bias)
+   - 5min (entry zone refinement)
+   - 1min (MSS confirmation)
+
+2. **Frontend stores multi-TF data**: `ChartView` receives the callback from `BiasSelectorPlayground.onAutoFillComplete()` and stores all 5 analyses in `mtfAnalyses` state.
+
+3. **Chat API receives multi-TF context**: When the user sends a message, the chat request includes:
+   ```typescript
+   {
+     symbol: "AAPL",
+     timeframe: "5m",
+     messages: [...],
+     mtfAnalyses: {
+       "daily": ICTAnalysis,
+       "4h": ICTAnalysis,
+       "15min": ICTAnalysis,
+       "5min": ICTAnalysis,
+       "1min": ICTAnalysis
+     }
+   }
+   ```
+
+4. **System prompt adapts**: If `mtfAnalyses` is present, the system prompt includes multi-timeframe instructions:
+   - Daily/4H: Identify HTF draw (external liquidity, PDH/PDL)
+   - 15m: Only this TF can flip intraday bias (must have displaced BOS/ChoCH)
+   - 5m: Refine entry zones (OB/FVG/CE aligned with 15m bias)
+   - 1m: Confirm MSS inside the 5m entry zone
+   - Session awareness: Grade setups based on NY AM/PM (preferred) vs London (ok) vs off-hours (reduced)
+
+5. **Tool response includes multi-TF data**: When `ict_analyze` is called, the tool response includes:
+   ```json
+   {
+     "primary": <ICTAnalysis for current timeframe>,
+     "multiTimeframe": {
+       "daily": <ICTAnalysis>,
+       "4h": <ICTAnalysis>,
+       "15min": <ICTAnalysis>,
+       "5min": <ICTAnalysis>,
+       "1min": <ICTAnalysis>
+     },
+     "note": "Multi-timeframe analyses available..."
+   }
+   ```
+
+6. **Agent uses all timeframes**: The agent references the entire stack when building trade plans, ensuring proper ICT methodology compliance.
+
+### UI Indicators
+
+- **Agent Context badge**: Shows "Multi-TF" (green checkmark) when multi-timeframe data is available, or "Single-TF" (gray) otherwise.
+- **Expanded context panel**: Displays a success message when multi-TF is active, or a warning prompting the user to click "Auto-fill" for better analysis.
+
+### Benefits
+
+- **Zero redundant API calls**: Leverages data already fetched by the Bias Stack Sandbox.
+- **User visibility**: Users see what the agent sees (playground shows all TF biases).
+- **User control**: Users trigger "Auto-fill" when they want fresh multi-TF data.
+- **True ICT methodology**: Agent follows proper top-down analysis instead of single-timeframe guessing.
+- **Opt-in**: Only used when playground data exists; gracefully degrades to single-TF mode.
+
 ## Frontend → Chat Request
 - Endpoint: `POST /api/chat`
 - Payload:
@@ -54,8 +123,9 @@ This document describes the chat agent that powers the “GPT-5 Trade Chat” pa
   - `timeframe: "1m"|"5m"|"15m"|"1H"|"4H"|"1D"|"3M"|"6M"|"1Y"|"Max"`
   - `messages: { role: "user"|"assistant"; content: string }[]` (last 50)
   - `conversationId?: string`
-  - `analysisMode?: "plan"|"chat"` (default `"plan"`). `plan` mode returns structured JSON trade plans plus rationale, whereas `chat` mode keeps the assistant conversational (still citing ICT data) without emitting plan JSON unless asked.
   - `includeCurrentBar?: boolean` (default `false`). When `true`, the ICT request keeps the latest still-forming candle instead of trimming to the last fully closed bar.
+  - `mtfAnalyses?: Record<string, ICTAnalysis>` (optional). Multi-timeframe analyses from Bias Stack Sandbox. When present, the agent receives all 5 timeframes and adapts its system prompt for top-down analysis.
+  - Mode detection is server-side: the chat route inspects the latest user message each turn (commands like `/plan` or language mentioning trade plans/entry-stop-target combos). When a plan intent is detected the system prompt forces the structured JSON response; otherwise it stays conversational even though the ICT data pull is the same.
 - Response (success):
   - `{ reply: string, usage: { prompt_tokens, completion_tokens, total_tokens }, ictMeta?: { symbol, interval, lookbackBars, barsCount, sourceInterval, range, tz, generatedAt, lastClosedBarTimeISO, includesCurrentBar } }`
 - Error semantics:
@@ -136,7 +206,17 @@ This document describes the chat agent that powers the “GPT-5 Trade Chat” pa
 - Dealing Range: pick major swing low/high containing last close, compute EQ midpoint and `pdPercent` position.
 - FVG: three-candle test with relative width filtering (mode: very_aggressive/aggressive/defensive/very_defensive); mark filled when candle bodies overlap gap bounds.
 - Liquidity: equal highs/lows via tolerance-based clustering; external extremes selected from swings; supports static/dynamic modes.
-- Sessions: kill zones generated by session template (e.g., NY AM/PM windows).
+- Sessions: kill zones generated by session template (London 02:00–05:00, NY AM 10:00–11:00, NY PM 14:00–15:00, Asian 20:00–23:59).
+
+## Intraday Bias Stack (Daily → 4H → 15m → 5m → 1m)
+- Helper: `selectBias` in `@/lib/ict/bias` (with `deriveSessionWindow` for classifying the active kill zone).
+- Workflow enforced before drafting trade plans:
+  1. **Daily / 4H draw**: identify the higher-timeframe liquidity target (PDH/PDL, NDOG/NWOG, weekly levels). If a proposed idea fights that draw we tag it `counterTrend` and cut the grade.
+  2. **15m session bias**: only the 15-minute chart may flip the intraday bias, and only after a body-close BOS/ChoCH with displacement. Its dealing range (premium/discount) must align with the intended direction.
+  3. **5m refiner**: map the 15m bias into execution zones (OB/FVG/CE). Disagreement or missing zones downgrades the score.
+  4. **1m execution**: wait for MSS/shift inside the 5m zone. Without it the selector returns `status: "wait"` and surfaces “Waiting for 1m MSS inside zone”.
+  5. **Session fit**: preferred kill zones are NY AM (10:00–11:00) and NY PM (14:00–15:00). London 02:00–05:00 is acceptable; anything else is `off` session fit and loses points.
+- The selector outputs `{ bias, grade (A/B/C), score, counterTrend, sessionFit, needsOneMinuteConfirmation, rationale[], checklist, status }` so the chat agent can cite exactly why a plan is or isn’t “Grade A”.
 
 ## Logging & Observability
 - Chat API logs:

@@ -26,6 +26,56 @@ import IctToggles, {
   type IctToggleKey,
   type IctTogglesState,
 } from "./overlays/IctToggles";
+import BiasSelectorPlayground from "./BiasSelectorPlayground";
+
+// Lightweight plan shape parsed from assistant replies
+type TradePlan = {
+  timeframe: string;
+  horizon?: string;
+  strategy?: string;
+  entry?: string;
+  stop?: string;
+  targets?: Array<number | string>;
+  confluence?: string[];
+  risk?: string;
+};
+
+// Extract first ```json ... ``` block and return parsed plan + remaining text as rationale
+const extractPlanFromContent = (
+  content: string
+): { plan: TradePlan | null; rationale: string } => {
+  if (!content) return { plan: null, rationale: "" };
+  const fenceRegex = /```(?:json)?\s*([\s\S]*?)```/i;
+  const match = content.match(fenceRegex);
+  if (!match) {
+    // No fenced block; try to locate a JSON object heuristically
+    const firstBrace = content.indexOf("{");
+    const lastBrace = content.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      const candidate = content.slice(firstBrace, lastBrace + 1).trim();
+      try {
+        const plan = JSON.parse(candidate) as TradePlan;
+        const rationale = (content.slice(0, firstBrace) + content.slice(lastBrace + 1)).trim();
+        return { plan, rationale };
+      } catch {
+        return { plan: null, rationale: content };
+      }
+    }
+    return { plan: null, rationale: content };
+  }
+  const jsonText = match[1].trim();
+  try {
+    const plan = JSON.parse(jsonText) as TradePlan;
+    const before = content.slice(0, match.index).trim();
+    const after = content.slice((match.index || 0) + match[0].length).trim();
+    let rationale = `${before}\n${after}`.trim();
+    // Strip an optional leading "Rationale:" label for cleaner rendering
+    rationale = rationale.replace(/^\**\s*Rationale\s*:\s*/i, "").trim();
+    return { plan, rationale };
+  } catch {
+    return { plan: null, rationale: content };
+  }
+};
 
 type ConversationRole = "user" | "assistant";
 
@@ -35,6 +85,7 @@ interface ConversationMessage {
   author: string;
   content: string;
   timestamp: string;
+  symbol: string; // Symbol this message was generated for
 }
 
 type PriceBar = ICTBar;
@@ -157,17 +208,6 @@ const timeframeConfig: Record<TimeframeKey, TimeframeConfig> = {
     description: "Five-year lookback (daily candles)",
   },
 };
-
-const CHAT_MODE_DETAILS = {
-  plan: {
-    label: "Plan",
-    description: "Structured trade plan with JSON + rationale",
-  },
-  chat: {
-    label: "Chat",
-    description: "Conversational ICT commentary (no plan JSON)",
-  },
-} as const;
 
 const intradayIntervals = new Set([
   "1m",
@@ -645,13 +685,11 @@ const ChartView: React.FC = () => {
   const [chatWidth, setChatWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [chatMode, setChatMode] = useState<"plan" | "chat">("plan");
   const [agentContext, setAgentContext] = useState<AgentContextState | null>(null);
   const [isAgentContextOpen, setIsAgentContextOpen] = useState(false);
   const [agentContextCopied, setAgentContextCopied] = useState(false);
   const [includeCurrentBar, setIncludeCurrentBar] = useState(false);
   const hydratingHistoryRef = useRef(false);
-  const chatModeDetails = CHAT_MODE_DETAILS[chatMode];
   const activeTimeframeProfile = useMemo(
     () => getTimeframeProfile(activeTimeframe),
     [activeTimeframe]
@@ -725,6 +763,43 @@ const ChartView: React.FC = () => {
     ? "text-warning"
     : "text-text-tertiary";
 
+  const handleBiasAutoFillComplete = useCallback(
+    (analyses: Record<string, ICTAnalysis>) => {
+      if (!analyses) return;
+
+      // Store all multi-timeframe analyses for the agent
+      setMtfAnalyses(analyses);
+
+      const enforcedInterval = activeTimeframeProfile?.interval ?? activeTimeframe;
+      const activeAnalysis = analyses[enforcedInterval];
+      if (!activeAnalysis) {
+        return;
+      }
+
+      setAgentContext((prev) => {
+        const fallback = baseAgentContext;
+        return {
+          ...(prev ?? fallback),
+          interval: enforcedInterval,
+          lookbackBars:
+            activeAnalysis.meta.lookbackBars ?? prev?.lookbackBars ?? fallback.lookbackBars ?? null,
+          barsCount: activeAnalysis.meta.barsCount ?? prev?.barsCount ?? null,
+          sourceInterval:
+            activeAnalysis.meta.sourceInterval ?? prev?.sourceInterval ?? fallback.sourceInterval ?? null,
+          range: activeAnalysis.meta.range ?? prev?.range ?? fallback.range ?? null,
+          tz: activeAnalysis.meta.tz ?? prev?.tz ?? fallback.tz ?? null,
+          generatedAt: activeAnalysis.meta.generatedAt ?? prev?.generatedAt ?? null,
+          lastClosedBarTimeISO:
+            activeAnalysis.meta.lastClosedBarTimeISO ?? prev?.lastClosedBarTimeISO ?? null,
+          includesCurrentBar:
+            activeAnalysis.meta.includesCurrentBar ?? prev?.includesCurrentBar ?? includeCurrentBar,
+          updatedAt: new Date().toISOString(),
+        } as AgentContextState;
+      });
+    },
+    [activeTimeframe, activeTimeframeProfile, baseAgentContext, includeCurrentBar]
+  );
+
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -742,6 +817,8 @@ const ChartView: React.FC = () => {
   } | null>(null);
   const [isLiveUpdating, setIsLiveUpdating] = useState(false);
   const [priceBars, setPriceBars] = useState<PriceBar[]>([]);
+  const [mtfAnalyses, setMtfAnalyses] = useState<Record<string, ICTAnalysis> | null>(null);
+  const [planSaveStatus, setPlanSaveStatus] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
   const [ictToggles, setIctToggles] = useState<IctTogglesState>({
     eq: true,
     orderBlocks: true,
@@ -812,6 +889,131 @@ const ChartView: React.FC = () => {
       [key]: value,
     }));
   };
+
+  const getTodayISOInTZ = (tz: string = TIME_ZONE) => {
+    const d = new Date();
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(d);
+    const map: Record<string, string> = {};
+    for (const p of parts) if (p.type !== "literal") map[p.type] = p.value;
+    return `${map.year}-${map.month}-${map.day}`;
+  };
+
+  const savePlanToNotes = async (messageId: string, plan: TradePlan) => {
+    try {
+      setPlanSaveStatus((s) => ({ ...s, [messageId]: "saving" }));
+      const dateISO = getTodayISOInTZ();
+      // Load existing note for the day
+      const getRes = await fetch(`/api/notes?date=${dateISO}`, { cache: "no-store" });
+      const existing = await getRes.json();
+      const existingPlans: any[] = Array.isArray(existing?.aiPlans) ? existing.aiPlans : [];
+      const newPlan = {
+        symbol,
+        timeframe: plan.timeframe,
+        horizon: plan.horizon,
+        strategy: plan.strategy,
+        entry: plan.entry,
+        stop: plan.stop,
+        targets: plan.targets,
+        confluence: plan.confluence,
+        risk: plan.risk,
+        createdAt: new Date().toISOString(),
+        source: "agent" as const,
+      };
+      // De-duplicate: avoid appending identical plan objects
+      const keyOf = (p: any) =>
+        JSON.stringify({
+          symbol: p.symbol,
+          timeframe: p.timeframe,
+          horizon: p.horizon,
+          strategy: p.strategy,
+          entry: p.entry,
+          stop: p.stop,
+          targets: p.targets,
+          confluence: p.confluence,
+          risk: p.risk,
+        });
+      const have = new Set(existingPlans.map((p: any) => keyOf(p)));
+      const aiPlans = have.has(keyOf(newPlan))
+        ? existingPlans
+        : [...existingPlans, newPlan];
+      const postRes = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dateISO, aiPlans }),
+      });
+      if (!postRes.ok) throw new Error("Failed to save plan");
+      setPlanSaveStatus((s) => ({ ...s, [messageId]: "saved" }));
+    } catch (e) {
+      setPlanSaveStatus((s) => ({ ...s, [messageId]: "error" }));
+    }
+  };
+
+  // Check which plans are already saved when messages change
+  useEffect(() => {
+    const checkSavedPlans = async () => {
+      try {
+        const dateISO = getTodayISOInTZ();
+        const getRes = await fetch(`/api/notes?date=${dateISO}`, { cache: "no-store" });
+        const existing = await getRes.json();
+        const existingPlans: any[] = Array.isArray(existing?.aiPlans) ? existing.aiPlans : [];
+
+        // Create a key function to compare plans
+        const keyOf = (p: any) =>
+          JSON.stringify({
+            symbol: p.symbol,
+            timeframe: p.timeframe,
+            horizon: p.horizon,
+            strategy: p.strategy,
+            entry: p.entry,
+            stop: p.stop,
+            targets: p.targets,
+            confluence: p.confluence,
+            risk: p.risk,
+          });
+
+        const savedPlanKeys = new Set(existingPlans.map((p: any) => keyOf(p)));
+
+        // Check each message for plans and mark as saved if they exist
+        const newStatus: Record<string, "saved"> = {};
+        messages.forEach((msg) => {
+          if (msg.role === "assistant" && msg.content) {
+            const { plan } = extractPlanFromContent(msg.content);
+            if (plan) {
+              const planKey = keyOf({
+                symbol,
+                timeframe: plan.timeframe,
+                horizon: plan.horizon,
+                strategy: plan.strategy,
+                entry: plan.entry,
+                stop: plan.stop,
+                targets: plan.targets,
+                confluence: plan.confluence,
+                risk: plan.risk,
+              });
+              if (savedPlanKeys.has(planKey)) {
+                newStatus[msg.id] = "saved";
+              }
+            }
+          }
+        });
+
+        if (Object.keys(newStatus).length > 0) {
+          setPlanSaveStatus((prev) => ({ ...prev, ...newStatus }));
+        }
+      } catch (e) {
+        // Silently fail - not critical
+      }
+    };
+
+    if (messages.length > 0) {
+      checkSavedPlans();
+    }
+  }, [messages, symbol]);
 
   const toggleChat = () => {
     setIsChatVisible(!isChatVisible);
@@ -887,6 +1089,7 @@ const ChartView: React.FC = () => {
           author: "GPT-5",
           content: "Thinking...",
           timestamp: placeholderTimestamp,
+          symbol: requestSymbol,
         },
       ]);
 
@@ -909,7 +1112,6 @@ const ChartView: React.FC = () => {
             activeConfig.fetchInterval,
           messageCount: trimmedHistory.length,
           conversationId,
-          analysisMode: chatMode,
           includeCurrentBar,
         });
         console.log(
@@ -927,8 +1129,8 @@ const ChartView: React.FC = () => {
             timeframe: activeTimeframe,
             messages: trimmedHistory,
             conversationId,
-            analysisMode: chatMode,
             includeCurrentBar,
+            mtfAnalyses: mtfAnalyses, // Pass multi-timeframe analyses from playground
           }),
         });
 
@@ -1005,7 +1207,7 @@ const ChartView: React.FC = () => {
         setIsSending(false);
       }
     },
-    [symbol, activeTimeframe, conversationId, chatMode, includeCurrentBar]
+    [symbol, activeTimeframe, conversationId, includeCurrentBar, mtfAnalyses]
   );
 
   const handleCopyAgentContext = useCallback(async () => {
@@ -1185,6 +1387,7 @@ const ChartView: React.FC = () => {
               hour: "2-digit",
               minute: "2-digit",
             }),
+            symbol: m.symbol || symbol, // Use stored symbol or fallback to current symbol
           })
         );
         setMessages(mapped);
@@ -1218,6 +1421,7 @@ const ChartView: React.FC = () => {
         hour: "2-digit",
         minute: "2-digit",
       }),
+      symbol: symbol, // Capture the symbol when the user sends the message
     };
 
     setMessages((prev) => [...prev, newMessage]);
@@ -2008,38 +2212,13 @@ const ChartView: React.FC = () => {
                           </span>
                         </p>
                         <p className="text-[11px] text-text-tertiary truncate">
-                          Mode:{" "}
-                          <span className="font-semibold text-text-primary">
-                            {chatModeDetails.label}
-                          </span>{" "}
-                          · {chatModeDetails.description}
+                          GPT-5 auto-detects when to deliver a trade plan vs.
+                          conversational commentary.
                         </p>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap justify-end">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">
-                            Mode
-                          </span>
-                          <div className="flex rounded-lg border border-border overflow-hidden">
-                            {(["plan", "chat"] as const).map((mode) => {
-                              const isActive = chatMode === mode;
-                              return (
-                                <button
-                                  key={mode}
-                                  type="button"
-                                  onClick={() => setChatMode(mode)}
-                                  className={`px-3 py-1 text-xs font-semibold transition rounded-md ${
-                                    isActive
-                                      ? "bg-primary text-text-inverted shadow-lg border-2 border-primary-hover"
-                                      : "bg-background-subtle text-text-secondary hover:text-text-primary"
-                                  }`}
-                                  aria-pressed={isActive}
-                                >
-                                  {mode === "plan" ? "Plan" : "Chat"}
-                                </button>
-                              );
-                            })}
-                          </div>
+                        <div className="rounded-full border border-border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-secondary bg-background-subtle">
+                          Auto plan detection
                         </div>
                         <button
                           type="button"
@@ -2143,10 +2322,27 @@ const ChartView: React.FC = () => {
                         onClick={() => setIsAgentContextOpen((prev) => !prev)}
                         className="flex w-full items-center justify-between gap-3"
                       >
-                        <div className="text-left">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">
-                            Agent Context
-                          </p>
+                        <div className="text-left flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">
+                              Agent Context
+                            </p>
+                            {mtfAnalyses && Object.keys(mtfAnalyses).length > 0 ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-success/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-success">
+                                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Multi-TF
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-border/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">
+                                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                                </svg>
+                                Single-TF
+                              </span>
+                            )}
+                          </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-text-primary">
                             <span>{agentSummary}</span>
                             {effectiveIncludeCurrentBar && (
@@ -2212,6 +2408,35 @@ const ChartView: React.FC = () => {
                       </div>
                       {isAgentContextOpen && (
                         <div className="mt-3 space-y-3">
+                          {mtfAnalyses && Object.keys(mtfAnalyses).length > 0 ? (
+                            <div className="rounded-md border border-success/30 bg-success/5 px-3 py-2 text-[11px] text-text-primary">
+                              <div className="flex items-start gap-2">
+                                <svg className="h-4 w-4 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <div>
+                                  <p className="font-semibold">Multi-timeframe context active</p>
+                                  <p className="text-[10px] text-text-secondary mt-1">
+                                    Agent has access to {Object.keys(mtfAnalyses).join(", ")} analyses for proper ICT top-down analysis. Daily/4H set the draw, 15m flips bias, 5m refines entry, 1m confirms MSS.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-text-primary">
+                              <div className="flex items-start gap-2">
+                                <svg className="h-4 w-4 text-warning flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                <div>
+                                  <p className="font-semibold">Single timeframe mode</p>
+                                  <p className="text-[10px] text-text-secondary mt-1">
+                                    For trade plans with proper ICT methodology, click "Auto-fill from ICT" in the Bias Stack Sandbox to load multi-timeframe context.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                           <dl className="grid grid-cols-2 gap-3 text-[11px]">
                             <div>
                               <dt className="text-[10px] uppercase tracking-wide text-text-tertiary">
@@ -2323,6 +2548,14 @@ const ChartView: React.FC = () => {
                       )}
                     </div>
 
+                    <div className="mt-3">
+                      <BiasSelectorPlayground
+                        symbol={symbol}
+                        includeCurrentBar={includeCurrentBar}
+                        onAutoFillComplete={handleBiasAutoFillComplete}
+                      />
+                    </div>
+
                     <div className="flex flex-col gap-3 overflow-y-auto rounded-xl border border-border bg-background-subtle p-4 min-h-0 h-[60vh]">
                       {messages.length === 0 ? (
                         <div className="flex flex-1 items-center justify-center text-xs text-text-tertiary text-center px-4">
@@ -2332,6 +2565,10 @@ const ChartView: React.FC = () => {
                       ) : (
                         messages.map((message) => {
                           const isUser = message.role === "user";
+                          const showPlan = !isUser && Boolean(message.content);
+                          const { plan, rationale } = showPlan
+                            ? extractPlanFromContent(message.content)
+                            : { plan: null, rationale: message.content };
                           return (
                             <div
                               key={message.id}
@@ -2344,15 +2581,145 @@ const ChartView: React.FC = () => {
                               <span className="text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">
                                 {message.author} • {message.timestamp}
                               </span>
-                              <div
-                                className={`max-w-[90%] rounded-xl px-3 py-2.5 text-xs leading-relaxed ${
-                                  isUser
-                                    ? "bg-primary text-text-inverted"
-                                    : "border border-primary/30 bg-background-surface text-text-primary shadow-inner"
-                                }`}
-                              >
-                                {message.content}
-                              </div>
+                              {isUser || !plan ? (
+                                <div
+                                  className={`max-w-[90%] rounded-xl px-3 py-2.5 text-xs leading-relaxed ${
+                                    isUser
+                                      ? "bg-primary text-text-inverted"
+                                      : "border border-primary/30 bg-background-surface text-text-primary shadow-inner"
+                                  }`}
+                                >
+                                  {message.content}
+                                </div>
+                              ) : (
+                                <div className="max-w-[90%] w-full space-y-2">
+                                  <div className="rounded-xl border border-primary/40 bg-background-surface shadow-sm overflow-hidden">
+                                    <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                                      <div className="flex items-center gap-2 text-xs">
+                                        <span className="rounded-md bg-primary/10 px-2 py-0.5 font-semibold text-primary-text">Trade Plan</span>
+                                        {plan.timeframe && (
+                                          <span className="rounded-md bg-background-subtle px-2 py-0.5 text-text-secondary">
+                                            {plan.timeframe}
+                                          </span>
+                                        )}
+                                        {plan.horizon && (
+                                          <span className="text-text-tertiary">{plan.horizon}</span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          className="rounded-md border border-border bg-background-subtle px-2 py-1 text-[11px] font-semibold text-text-secondary hover:text-text-primary"
+                                          onClick={async () => {
+                                          try {
+                                            await navigator.clipboard.writeText(
+                                              JSON.stringify(plan, null, 2)
+                                            );
+                                          } catch {}
+                                        }}
+                                        >
+                                          Copy JSON
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className={`rounded-md px-2 py-1 text-[11px] font-semibold transition-all ${
+                                            planSaveStatus[message.id] === "saved"
+                                              ? "bg-success/20 text-success border border-success/30 cursor-default"
+                                              : planSaveStatus[message.id] === "saving"
+                                              ? "bg-primary/50 text-text-inverted cursor-wait"
+                                              : planSaveStatus[message.id] === "error"
+                                              ? "bg-error/20 text-error-text border border-error/30 hover:bg-error/30"
+                                              : "bg-primary text-text-inverted hover:bg-primary-hover"
+                                          }`}
+                                          onClick={() => savePlanToNotes(message.id, plan)}
+                                          disabled={planSaveStatus[message.id] === "saving" || planSaveStatus[message.id] === "saved"}
+                                        >
+                                          {planSaveStatus[message.id] === "saving" && "⏳ Saving..."}
+                                          {planSaveStatus[message.id] === "saved" && "✓ Saved"}
+                                          {(!planSaveStatus[message.id] || planSaveStatus[message.id] === "idle") && "Save to Notes"}
+                                          {planSaveStatus[message.id] === "error" && "⚠ Retry"}
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 p-3 text-xs">
+                                      <div>
+                                        <div className="text-text-tertiary">Strategy</div>
+                                        <div className="font-medium text-text-primary">{plan.strategy || "—"}</div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <div className="text-text-tertiary">Entry</div>
+                                          <div className="font-semibold text-success">{plan.entry || "—"}</div>
+                                        </div>
+                                        <div>
+                                          <div className="text-text-tertiary">Stop</div>
+                                          <div className="font-semibold text-error-text">{plan.stop || "—"}</div>
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-text-tertiary">Targets</div>
+                                        <div className="flex flex-wrap gap-1 pt-1">
+                                          {(plan.targets || []).map((t, i) => (
+                                            <span
+                                              key={`${t}-${i}`}
+                                              className="rounded-md bg-background-subtle px-2 py-0.5 text-text-primary"
+                                            >
+                                              {t}
+                                            </span>
+                                          ))}
+                                          {(!plan.targets || plan.targets.length === 0) && (
+                                            <span className="text-text-secondary">—</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-text-tertiary">Risk</div>
+                                        <div className="font-medium">{plan.risk || "—"}</div>
+                                      </div>
+                                      <div className="col-span-2">
+                                        <div className="text-text-tertiary">Confluence</div>
+                                        <div className="flex flex-wrap gap-1 pt-1">
+                                          {(plan.confluence || []).map((c, i) => (
+                                            <span
+                                              key={`${c}-${i}`}
+                                              className="rounded-md border border-border bg-background px-2 py-0.5 text-text-secondary"
+                                            >
+                                              {c}
+                                            </span>
+                                          ))}
+                                          {(!plan.confluence || plan.confluence.length === 0) && (
+                                            <span className="text-text-secondary">—</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {rationale && (
+                                    <div className="rounded-xl border border-border bg-background-surface px-3 py-2 text-xs">
+                                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
+                                        Rationale
+                                      </div>
+                                      {/* Basic bulletization: split on lines starting with '-' */}
+                                      {rationale.match(/\n-\s/) ? (
+                                        <ul className="list-disc pl-5 space-y-1">
+                                          {rationale
+                                            .split(/\n/)
+                                            .filter((l) => l.trim())
+                                            .map((line, i) => (
+                                              <li key={i} className="text-text-primary">
+                                                {line.replace(/^[-*]\s*/, "")}
+                                              </li>
+                                            ))}
+                                        </ul>
+                                      ) : (
+                                        <div className="text-text-primary whitespace-pre-wrap">
+                                          {rationale}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           );
                         })

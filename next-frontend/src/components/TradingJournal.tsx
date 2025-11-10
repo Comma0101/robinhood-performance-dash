@@ -19,6 +19,20 @@ interface TradeNote {
   notes?: string;
 }
 
+interface AITradePlan {
+  symbol: string;
+  timeframe: string;
+  horizon?: string;
+  strategy?: string;
+  entry?: string;
+  stop?: string;
+  targets?: Array<number | string>;
+  confluence?: string[];
+  risk?: string;
+  createdAt: string;
+  source?: "agent" | "manual";
+}
+
 interface DayNote {
   dateISO: string;
   preMarketPlan?: string;
@@ -48,6 +62,7 @@ interface DayNote {
   tags?: string[];
   rating?: number;
   lastUpdated: string;
+  aiPlans?: AITradePlan[];
 }
 
 interface TradingJournalProps {
@@ -240,6 +255,113 @@ const TradingJournal: React.FC<TradingJournalProps> = ({
         {activeTab === "preparation" && (
           <div className="journal-section">
             <h3 className="section-title">Pre-Market Analysis</h3>
+
+            {/* AI Trade Plans Section */}
+            {note.aiPlans && note.aiPlans.length > 0 && (
+              <div className="journal-field ai-plans-section">
+                <label className="journal-label">
+                  <span className="label-icon">🤖</span>
+                  AI Trade Plans
+                  <span className="label-hint">
+                    Plans generated from multi-timeframe analysis
+                  </span>
+                </label>
+                <div className="ai-plans-grid">
+                  {note.aiPlans.map((plan, idx) => (
+                    <div key={idx} className="ai-trade-plan-card">
+                      <div className="plan-card-header">
+                        <div className="plan-symbol">{plan.symbol}</div>
+                        <div className="plan-badges">
+                          <span className="plan-badge timeframe">{plan.timeframe}</span>
+                          {plan.horizon && <span className="plan-badge horizon">{plan.horizon}</span>}
+                        </div>
+                        <div className="plan-time">
+                          {new Date(plan.createdAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="plan-card-body">
+                        {plan.strategy && (
+                          <div className="plan-row">
+                            <span className="plan-label">Strategy</span>
+                            <span className="plan-value">{plan.strategy}</span>
+                          </div>
+                        )}
+
+                        <div className="plan-row-group">
+                          {plan.entry && (
+                            <div className="plan-row compact">
+                              <span className="plan-label">Entry</span>
+                              <span className="plan-value entry">{plan.entry}</span>
+                            </div>
+                          )}
+
+                          {plan.stop && (
+                            <div className="plan-row compact">
+                              <span className="plan-label">Stop</span>
+                              <span className="plan-value stop">{plan.stop}</span>
+                            </div>
+                          )}
+
+                          {plan.risk && (
+                            <div className="plan-row compact">
+                              <span className="plan-label">Risk</span>
+                              <span className="plan-value">{plan.risk}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {plan.targets && plan.targets.length > 0 && (
+                          <div className="plan-row">
+                            <span className="plan-label">Targets</span>
+                            <div className="plan-targets">
+                              {plan.targets.map((target, i) => (
+                                <span key={i} className="target-chip">
+                                  T{i + 1}: {target}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {plan.confluence && plan.confluence.length > 0 && (
+                          <div className="plan-row">
+                            <span className="plan-label">Confluence</span>
+                            <div className="plan-confluence">
+                              {plan.confluence.map((conf, i) => (
+                                <span key={i} className="confluence-chip">
+                                  {conf}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="plan-card-footer">
+                        <button
+                          className="plan-copy-btn"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(JSON.stringify(plan, null, 2));
+                            } catch {}
+                          }}
+                          title="Copy as JSON"
+                        >
+                          📋 Copy
+                        </button>
+                        <span className="plan-source">
+                          {plan.source === 'agent' ? '🤖 Agent' : '✍️ Manual'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="journal-field">
               <label className="journal-label">

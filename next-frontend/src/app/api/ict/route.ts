@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { analyzeICT } from "@/lib/ict";
 import type { ICTAnalysisOptions, ICTBar, ICTInterval } from "@/lib/ict";
-import { isBarFullyClosed, toTimeZoneDate } from "@/lib/ict/utils";
+import { isBarFullyClosed, normalizeTimestampToIso, toTimeZoneDate } from "@/lib/ict/utils";
 
 const INTRADAY_INTERVAL_MS: Record<string, number> = {
   "1min": 60 * 1000,
@@ -334,11 +334,17 @@ export async function GET(request: Request) {
     closedBars[closedBars.length - 1]?.time ?? analysis.meta.range?.end ?? "";
   const lastBar = analysis.meta.lastBar;
   const pricePrecision = analysis.meta.pricePrecision ?? 4;
-  const summaryTime = analysis.meta.lastClosedBarTimeISO ?? lastBar?.time ?? null;
   const summaryTz = analysis.meta.exchangeTZ ?? analysis.meta.tz;
+  const normalizeTimestamp = (value?: string | null) =>
+    normalizeTimestampToIso(value, summaryTz ?? undefined) ?? value ?? null;
+  const summaryTime = normalizeTimestamp(
+    analysis.meta.lastClosedBarTimeISO ?? lastBar?.time ?? null
+  );
+  const rangeStartIso = normalizeTimestamp(rangeStart);
+  const rangeEndIso = normalizeTimestamp(rangeEnd);
   const formatPrice = (value: number) => value.toFixed(pricePrecision);
   const currentBarSummary = lastBar
-    ? `barTimeISO=${summaryTime} exchangeTZ=${summaryTz} O=${formatPrice(lastBar.open)} H=${formatPrice(
+    ? `barTimeISO=${summaryTime ?? ""} exchangeTZ=${summaryTz} O=${formatPrice(lastBar.open)} H=${formatPrice(
         lastBar.high
       )} L=${formatPrice(lastBar.low)} C=${formatPrice(lastBar.close)} V=${Math.round(
         lastBar.volume
@@ -349,9 +355,10 @@ export async function GET(request: Request) {
     meta: {
       ...analysis.meta,
       range: {
-        start: rangeStart,
-        end: rangeEnd,
+        start: rangeStartIso,
+        end: rangeEndIso,
       },
+      lastClosedBarTimeISO: summaryTime ?? undefined,
       lookbackBars,
       barsCount,
       sourceInterval: fetchInterval,

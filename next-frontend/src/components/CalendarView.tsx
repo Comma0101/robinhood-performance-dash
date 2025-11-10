@@ -34,12 +34,27 @@ interface Trade {
   status: "Win" | "Loss" | "Breakeven";
 }
 
+interface AITradePlan {
+  symbol: string;
+  timeframe: string;
+  horizon?: string;
+  strategy?: string;
+  entry?: string;
+  stop?: string;
+  targets?: Array<number | string>;
+  confluence?: string[];
+  risk?: string;
+  createdAt: string;
+  source?: "agent" | "manual";
+}
+
 interface DayNote {
   dateISO: string;
   preMarketPlan?: string;
   postDaySummary?: string;
   tags?: string[];
   lastUpdated: string;
+  aiPlans?: AITradePlan[];
 }
 
 // --- DATA MODELS from Spec ---
@@ -178,7 +193,9 @@ const DayCell: React.FC<{
 
   const hasNote =
     summary?.note &&
-    (summary.note.preMarketPlan || summary.note.postDaySummary);
+    (summary.note.preMarketPlan ||
+      summary.note.postDaySummary ||
+      (summary.note as any)?.aiPlans?.length > 0);
 
   return (
     <div
@@ -571,7 +588,7 @@ const DayDrawer: React.FC<{
               )}
               {!summary.note?.preMarketPlan &&
                 !summary.note?.postDaySummary && (
-                  <p className="no-notes">No notes for this day yet.</p>
+                  <p className="no-notes">No notes for this day yet. Click "📔 Full Journal" to add detailed notes and view AI trade plans.</p>
                 )}
             </div>
           )}

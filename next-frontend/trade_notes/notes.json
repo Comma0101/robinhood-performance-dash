@@ -12,5 +12,91 @@
     "preMarketPlan": "amd posted earning, it was bought up from 236-256, now its at 256. plan was wait for pull back to enter.",
     "marketConditions": "Trending Up",
     "newsEvents": " Financial Analyst Day on Tuesday, November 11, 2025"
+  },
+  "2025-11-10": {
+    "dateISO": "2025-11-10",
+    "aiPlans": [
+      {
+        "symbol": "AAPL",
+        "timeframe": "1min",
+        "horizon": "scalp (≈1 hour)",
+        "strategy": "Trend Continuation",
+        "entry": "Above 623.20",
+        "stop": "Below 622.80",
+        "targets": [
+          623.55,
+          623.75
+        ],
+        "confluence": [
+          "Bullish bias on 1min, 5min, and 15min",
+          "Mitigated demand order blocks",
+          "Premium zone entry"
+        ],
+        "risk": "Reduced quality - No kill zone active",
+        "createdAt": "2025-11-10T20:47:49.042Z",
+        "source": "agent"
+      },
+      {
+        "symbol": "AAPL",
+        "timeframe": "1min",
+        "horizon": "scalp (≈1 hour)",
+        "strategy": "Trend Continuation",
+        "entry": "Above 623.20",
+        "stop": "Below 622.80",
+        "targets": [
+          623.55,
+          623.75
+        ],
+        "confluence": [
+          "Bullish bias on 1min, 5min, and 15min",
+          "Mitigated demand order blocks",
+          "Premium zone entry"
+        ],
+        "risk": "Reduced quality - No kill zone active",
+        "createdAt": "2025-11-10T20:48:42.679Z",
+        "source": "agent"
+      },
+      {
+        "symbol": "AAPL",
+        "timeframe": "1min",
+        "horizon": "scalp (≈1 hour)",
+        "strategy": "Trend Continuation",
+        "entry": "Above 623.20",
+        "stop": "Below 622.80",
+        "targets": [
+          623.55,
+          623.75
+        ],
+        "confluence": [
+          "Bullish bias on 1min, 5min, and 15min",
+          "Mitigated demand order blocks",
+          "Premium zone entry"
+        ],
+        "risk": "Reduced quality - No kill zone active",
+        "createdAt": "2025-11-10T20:48:44.913Z",
+        "source": "agent"
+      },
+      {
+        "symbol": "QQQ",
+        "timeframe": "1min",
+        "horizon": "scalp (≈1 hour)",
+        "strategy": "Trend Continuation",
+        "entry": "Above 623.20",
+        "stop": "Below 622.80",
+        "targets": [
+          623.55,
+          623.75
+        ],
+        "confluence": [
+          "Bullish bias on 1min, 5min, and 15min",
+          "Mitigated demand order blocks",
+          "Premium zone entry"
+        ],
+        "risk": "Reduced quality - No kill zone active",
+        "createdAt": "2025-11-10T20:49:59.685Z",
+        "source": "agent"
+      }
+    ],
+    "lastUpdated": "2025-11-10T21:11:20.434Z"
   }
 }

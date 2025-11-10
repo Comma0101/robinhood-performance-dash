@@ -1,6 +1,8 @@
 import { ICTBar } from "./types";
 
 export const ICT_TIME_ZONE = "America/New_York";
+const ISO_TIMESTAMP_BODY = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+const ISO_TIMESTAMP_SUFFIX = /(Z|[+-]\d{2}:\d{2})$/;
 
 const pad = (value: number): string => value.toString().padStart(2, "0");
 export const padNumber = (value: number): string => pad(value);
@@ -218,6 +220,30 @@ export const computeAverageTrueRange = (
   }
 
   return atr;
+};
+
+export const normalizeTimestampToIso = (
+  timestamp?: string | null,
+  timeZone: string = ICT_TIME_ZONE
+): string | null => {
+  if (!timestamp) {
+    return null;
+  }
+
+  const trimmed = timestamp.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (ISO_TIMESTAMP_BODY.test(trimmed) && ISO_TIMESTAMP_SUFFIX.test(trimmed)) {
+    return trimmed;
+  }
+
+  const date = toTimeZoneDate(trimmed, timeZone);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toISOString();
 };
 
 export const inferPricePrecision = (symbol: string, price: number): number => {

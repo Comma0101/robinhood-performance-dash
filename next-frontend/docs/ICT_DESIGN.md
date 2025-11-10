@@ -22,7 +22,7 @@ This document explains how our ICT (Inner Circle Trader / Smart Money Concepts) 
   - `orderBlocks[]`: zones with type (demand/supply), origin (BOS/ChoCH), refinement method (defensive/aggressive/mean threshold), classification (origin/mitigation/breaker), touch/invalidated metadata, scoring, validity
   - `fvg[]`: fair value gaps with bounds, consequent encroachment (CE), fill/touch metadata, potency
   - `liquidity`: equal highs/lows clusters, relative equal highs/lows, external extremes, and stack groupings with classification (internal/external/relative)
-  - `sessions`: kill zones
+  - `sessions`: kill zones (London 02:00–05:00, NY AM 10:00–11:00, NY PM 14:00–15:00, Asian 20:00–23:59)
   - `levels`: previous day/week highs/lows
   - `smtSignals[]`: optional Smart Money Technique divergence signals across comparative symbols
 
@@ -123,7 +123,7 @@ This document explains how our ICT (Inner Circle Trader / Smart Money Concepts) 
 - Modes still support `static`, `dynamic`, or `both` when building the base equal-high/low sets; dedupe and trim before returning.
 
 ## Sessions & Reference Levels
-- Sessions: compute “kill zones” by session template (e.g., NY AM/Lunch/PM windows) using timezone-aligned timestamps.
+- Sessions: compute “kill zones” by session template (London 02:00–05:00, NY AM 10:00–11:00, NY PM 14:00–15:00, Asian 20:00–23:59) using timezone-aligned timestamps.
 - Reference levels:
   - Previous day high/low by grouping bars by (NY) calendar day.
   - Previous week high/low by ISO week grouping.
@@ -201,6 +201,18 @@ This document explains how our ICT (Inner Circle Trader / Smart Money Concepts) 
   "levels": { "prevDayHigh": 0, "prevDayLow": 0, "weeklyHigh": 0, "weeklyLow": 0 }
 }
 ```
+
+## Intraday Bias Stack Helper
+- Utility module: `src/lib/ict/bias.ts` exports `selectBias` and `deriveSessionWindow`.
+- Inputs: Daily + 4H liquidity draws, confirmed 15m BOS/ChoCH direction + PD%, 5m bias/zone readiness, 1m MSS confirmation, and the current kill-zone classification.
+- Rules baked into `selectBias`:
+  - Only 15m can flip bias, and only after a body-close BOS/ChoCH with displacement.
+  - Daily/4H disagreement marks the setup `counterTrend` and subtracts from the score.
+  - 5m structure must agree with 15m and flag whether the entry zone (OB/FVG/CE) is ready; disagreement downgrades the grade.
+  - 1m MSS confirmation inside the 5m zone is required to move from `wait` → `ready` status.
+  - Preferred execution windows are NY AM (10:00–11:00 NY) and NY PM (14:00–15:00 NY); London 02:00–05:00 is acceptable, anything else is `off` session fit.
+- Output: `{ bias: "long|short|skip", grade: "A|B|C", counterTrend, score, sessionFit, needsOneMinuteConfirmation, rationale[], checklist, status }`.
+- Consumers (chat agent, future tools) should call `deriveSessionWindow(analysis)` to classify the active window, then feed the stacked cues into `selectBias` before drafting trade plans.
 
 ## Determinism & Trimming
 - All decisions are rule-based and reproducible for the same inputs.

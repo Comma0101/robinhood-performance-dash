@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import type { ICTAnalysis } from "@/lib/ict";
 import { getOrCreateAnonId } from "@/lib/session";
-import { getSupabaseServerClient, type ConversationRow } from "@/lib/supabase/serverClient";
+import {
+  getSupabaseServerClient,
+  type ConversationRow,
+} from "@/lib/supabase/serverClient";
 import { logger } from "@/lib/logger";
 import {
   getTimeframeHorizon,
@@ -16,6 +19,54 @@ interface ClientMessage {
 }
 
 type AnalysisMode = "plan" | "chat";
+
+const PLAN_COMMAND_REGEX = /(^|\s)\/(plan|tradeplan|setup)\b/i;
+const PLAN_KEYWORD_REGEXES = [
+  /\btrade plan\b/i,
+  /\bexecution plan\b/i,
+  /\bplan (?:this|that|the|it|my)\b/i,
+  /\bplan out\b/i,
+  /\bcan you (?:build|create|draft|map) (?:a )?plan\b/i,
+  /\bstructure (?:a )?setup\b/i,
+  /\bturn this into (?:a )?plan\b/i,
+];
+const PLAN_COMBO_REGEXES = [
+  /\bentry\b[^\n]*\b(stop|target|tp|sl|risk)\b/i,
+  /\bstop\b[^\n]*\b(target|entry|tp)\b/i,
+  /\btargets?\b[^\n]*\b(entry|stop)\b/i,
+];
+
+const inferAnalysisMode = (history: ClientMessage[]): AnalysisMode => {
+  const lastUserMessage = [...history]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "user" && typeof message.content === "string"
+    );
+
+  if (!lastUserMessage?.content) {
+    return "chat";
+  }
+
+  const content = lastUserMessage.content.trim();
+  if (!content) {
+    return "chat";
+  }
+
+  if (PLAN_COMMAND_REGEX.test(content)) {
+    return "plan";
+  }
+
+  if (PLAN_KEYWORD_REGEXES.some((regex) => regex.test(content))) {
+    return "plan";
+  }
+
+  if (PLAN_COMBO_REGEXES.some((regex) => regex.test(content))) {
+    return "plan";
+  }
+
+  return "chat";
+};
 
 type AgentMetaSummary = {
   symbol?: string;
@@ -33,8 +84,8 @@ type AgentMetaSummary = {
   includesCurrentBar?: boolean | null;
 };
 
-// Using GPT-4o (best available model from OpenAI as of 2024)
-// GPT-5 doesn't exist yet - this is the most capable model
+// Default to a stable, fast model if env not set
+// Honor OPENAI_GPT5_MODEL for backwards compatibility, but fall back to gpt-4o
 const DEFAULT_MODEL = process.env.OPENAI_GPT5_MODEL ?? "gpt-4o";
 
 const ictAnalyzeTool = {
@@ -52,7 +103,17 @@ const ictAnalyzeTool = {
         },
         interval: {
           type: "string",
-          enum: ["1min", "5min", "15min", "30min", "60min", "4h", "daily", "weekly", "monthly"],
+          enum: [
+            "1min",
+            "5min",
+            "15min",
+            "30min",
+            "60min",
+            "4h",
+            "daily",
+            "weekly",
+            "monthly",
+          ],
           description: "Price bar interval to analyze.",
         },
         lookbackBars: {
@@ -80,6 +141,7 @@ interface SystemPromptOptions {
   mode?: AnalysisMode;
   enforcedInterval?: string | null;
   horizon?: string | null;
+  hasMtfContext?: boolean;
 }
 
 const buildSystemMessage = ({
@@ -88,6 +150,7 @@ const buildSystemMessage = ({
   mode = "plan",
   enforcedInterval,
   horizon,
+  hasMtfContext = false,
 }: SystemPromptOptions) => {
   const timeframeLabel = timeframe ?? enforcedInterval ?? "active";
   const intervalLabel = enforcedInterval ?? timeframeLabel;
@@ -100,14 +163,34 @@ const buildSystemMessage = ({
   const timeframeDescriptor = descriptorParts.join(" · ") || timeframeLabel;
   const horizonLabel = horizon ?? "selected timeframe window";
   const instructions: string[] = [
-    "You are GPT-5, an ICT/SMC trading copilot.",
-    `Timeframe discipline: Keep every observation inside the ${timeframeDescriptor} window. The first sentence MUST read "Based on the ${intervalLabel} chart..." and you may not widen context beyond this horizon.`,
+    "You are an ICT/SMC trading copilot with expertise in multi-timeframe top-down analysis.",
+    `Timeframe discipline: The primary analysis timeframe is ${intervalLabel} (${horizonLabel}). Start your response with "Based on the ${intervalLabel} chart..." to anchor the user's context.`,
+  ];
+
+  if (hasMtfContext) {
+    instructions.push(
+      "Multi-timeframe context available: The tool response will include analyses for Daily, 4H, 15m, 5m, and 1m timeframes. You do NOT need to call ict_analyze multiple times - it will all be provided in a single tool response under the 'multiTimeframe' key.",
+      "When you receive the tool data, use it for proper ICT top-down analysis:",
+      "- Daily/4H: Identify higher timeframe draw (external liquidity targets, PDH/PDL, NDOG/NWOG). This sets the directional bias.",
+      "- 15m: This is the ONLY timeframe that can flip intraday bias. Check for body-close BOS/ChoCH with displacement. Verify dealing range (premium/discount %) aligns with intended direction.",
+      "- 5m: Refine entry zones - look for order blocks, FVG, or consequent encroachment that align with 15m bias.",
+      "- 1m: Confirm MSS (market structure shift) inside the 5m entry zone before execution.",
+      "- Session context: Preferred execution windows are NY AM (10:00-11:00 ET) and NY PM (14:00-15:00 ET). London (02:00-05:00 ET) is acceptable. Grade setups lower if outside preferred sessions.",
+      "When building trade plans, ALWAYS reference the multi-timeframe stack to confirm alignment. Flag countertrend setups explicitly if 15m bias fights Daily/4H draw."
+    );
+  } else {
+    instructions.push(
+      "Single timeframe mode: You only have access to the current timeframe. If the user asks for a trade plan, recommend they use 'Auto-fill from ICT' in the Bias Stack Sandbox to load multi-timeframe context for proper top-down analysis."
+    );
+  }
+
+  instructions.push(
     "Tool policy:",
     "- Do NOT mention BOS/ChoCH/MSS, order blocks, fair value gaps, liquidity, or OHLCV stats unless you have fresh ict_analyze data from this turn.",
     "- When you need structure, liquidity, PD%, PDH/PDL, or the latest OHLCV, call ict_analyze with the active symbol + interval and rely solely on its payload.",
     "Freshness: use the latest CLOSED bar only. If the tool payload appears older than the current closed bar for the active interval, ask the user to refresh instead of inferring.",
-    "Session hygiene: use sessions.killZones from ict_analyze; if no kill zone is active, flag reduced setup quality unless the user explicitly overrides.",
-  ];
+    "Session hygiene: use sessions.killZones from ict_analyze; if no kill zone is active, flag reduced setup quality unless the user explicitly overrides."
+  );
 
   if (mode === "plan") {
     instructions.push(
@@ -151,18 +234,31 @@ export async function POST(request: Request) {
       symbol,
       timeframe,
       conversationId,
-      analysisMode: requestedMode,
       includeCurrentBar: includeCurrentBarInput,
+      mtfAnalyses,
     } = body ?? {};
-    const analysisMode: AnalysisMode = requestedMode === "chat" ? "chat" : "plan";
     const includeCurrentBar = includeCurrentBarInput === true;
+
+    // Validate mtfAnalyses structure if present
+    if (
+      mtfAnalyses !== undefined &&
+      mtfAnalyses !== null &&
+      typeof mtfAnalyses !== "object"
+    ) {
+      logger.log(
+        "WARNING: mtfAnalyses is not an object, ignoring",
+        typeof mtfAnalyses
+      );
+    }
     let ictMetaSummary: AgentMetaSummary | null = null;
     const mappedInterval = mapUiTimeframeToInterval(timeframe);
     const timeframeProfile = getTimeframeProfile(timeframe);
-    const desiredInterval = timeframeProfile?.interval ?? mappedInterval ?? null;
+    const desiredInterval =
+      timeframeProfile?.interval ?? mappedInterval ?? null;
     const desiredLookbackBars =
       timeframeProfile?.lookbackBars ?? lookbackBarsForTimeframe(timeframe);
-    const timeframeHorizon = getTimeframeHorizon(timeframe) ?? timeframeProfile?.horizon ?? null;
+    const timeframeHorizon =
+      getTimeframeHorizon(timeframe) ?? timeframeProfile?.horizon ?? null;
     const timeframeSourceInterval = timeframeProfile?.sourceInterval ?? null;
     const timeframeRangeLabel = timeframeProfile?.rangeLabel ?? null;
 
@@ -197,39 +293,54 @@ export async function POST(request: Request) {
     let conversation: ConversationRow | null = null;
     if (conversationId) {
       const { data: conv, error: convErr } = await supabase
-        .from('conversations')
-        .select('*')
-        .eq('id', conversationId)
+        .from("conversations")
+        .select("*")
+        .eq("id", conversationId)
         .single();
       if (convErr) {
-        return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
+        return NextResponse.json(
+          { error: "Conversation not found" },
+          { status: 404 }
+        );
       }
       if (!conv || conv.user_id !== userId) {
-        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
       conversation = conv as ConversationRow;
-      if (conversation.status === 'closed') {
-        return NextResponse.json({ error: 'Conversation token limit reached. Start a new chat.' }, { status: 409 });
+      if (conversation.status === "closed") {
+        return NextResponse.json(
+          { error: "Conversation token limit reached. Start a new chat." },
+          { status: 409 }
+        );
       }
       const { data: msgs, error: msgErr } = await supabase
-        .from('messages')
-        .select('role, content')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true })
+        .from("messages")
+        .select("role, content")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true })
         .limit(200);
       if (msgErr) {
-        return NextResponse.json({ error: 'Failed to load conversation messages' }, { status: 500 });
+        return NextResponse.json(
+          { error: "Failed to load conversation messages" },
+          { status: 500 }
+        );
       }
-      serverHistory = (msgs ?? []).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      serverHistory = (msgs ?? []).map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
     }
 
     const mergedHistory = [...serverHistory, ...normalizedHistory].slice(-50);
+    const analysisMode = inferAnalysisMode(mergedHistory);
+    const hasMtfContext = mtfAnalyses && Object.keys(mtfAnalyses).length > 0;
     const systemMessage = buildSystemMessage({
       symbol,
       timeframe,
       mode: analysisMode,
       enforcedInterval: desiredInterval,
       horizon: timeframeHorizon,
+      hasMtfContext,
     });
     const openAiMessages = [systemMessage, ...mergedHistory];
 
@@ -246,17 +357,25 @@ export async function POST(request: Request) {
       range: timeframeRangeLabel,
       messageCount: normalizedHistory.length,
       includeCurrentBar,
+      analysisMode,
     });
-    logger.log("Last user message:", normalizedHistory[normalizedHistory.length - 1]?.content);
-    logger.log("System message preview:", systemMessage.content.substring(0, 150) + "...");
+    logger.log(
+      "Last user message:",
+      normalizedHistory[normalizedHistory.length - 1]?.content
+    );
+    logger.log(
+      "System message preview:",
+      systemMessage.content.substring(0, 150) + "..."
+    );
 
     const firstPassPayload = {
       model: DEFAULT_MODEL,
       messages: openAiMessages,
       tools: [ictAnalyzeTool],
       tool_choice: "auto", // Changed from "required" - let model decide if it needs ICT data
-      temperature: 0.7, // Increased from 0.25 for more varied responses
-      max_tokens: 2000, // Increased from 900 for longer responses
+      // Keep token cap modest to encourage quick tool calls
+      max_tokens: 800,
+      // Temperature omitted (defaults to 1 for most models)
     };
 
     logger.debug("Request payload:", firstPassPayload);
@@ -294,8 +413,19 @@ export async function POST(request: Request) {
     logger.log("Response details:", {
       finishReason: firstChoice?.finish_reason,
       toolCallsRequested: toolCalls.length,
-      usage: firstPassData?.usage
+      usage: firstPassData?.usage,
     });
+
+    // If model made multiple tool calls, warn and only process the first one
+    if (toolCalls.length > 1) {
+      logger.log(
+        "WARNING: Model requested multiple tool calls, only processing first one",
+        {
+          toolCallIds: toolCalls.map((tc: any) => tc.id),
+          toolCallCount: toolCalls.length,
+        }
+      );
+    }
 
     // If model didn't request tool, return direct response (casual chat)
     if (toolCalls.length === 0) {
@@ -303,23 +433,43 @@ export async function POST(request: Request) {
         firstChoice?.message?.content?.trim() ??
         "The model did not provide a response.";
 
-      logger.log("Direct response (no tool call):", directContent.substring(0, 200));
+      logger.log(
+        "Direct response (no tool call):",
+        directContent.substring(0, 200)
+      );
       logger.section("=== END REQUEST ===");
 
       // Persist if conversation is active
       if (conversationId && conversation) {
         // Store the last user message (from normalizedHistory) and assistant reply
-        const lastUser = mergedHistory.filter(m => m.role === 'user').slice(-1)[0];
+        const lastUser = mergedHistory
+          .filter((m) => m.role === "user")
+          .slice(-1)[0];
         try {
           if (lastUser) {
-            await supabase.from('messages').insert({ conversation_id: conversationId, role: 'user', content: lastUser.content });
+            await supabase.from("messages").insert({
+              conversation_id: conversationId,
+              role: "user",
+              content: lastUser.content,
+            });
           }
-          await supabase.from('messages').insert({ conversation_id: conversationId, role: 'assistant', content: directContent });
-          await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId);
+          await supabase.from("messages").insert({
+            conversation_id: conversationId,
+            role: "assistant",
+            content: directContent,
+          });
+          await supabase
+            .from("conversations")
+            .update({ updated_at: new Date().toISOString() })
+            .eq("id", conversationId);
         } catch {}
       }
 
-      return NextResponse.json({ reply: directContent, usage: firstPassData?.usage, ictMeta: ictMetaSummary });
+      return NextResponse.json({
+        reply: directContent,
+        usage: firstPassData?.usage,
+        ictMeta: ictMetaSummary,
+      });
     }
 
     const toolCall = toolCalls[0];
@@ -376,7 +526,9 @@ export async function POST(request: Request) {
         ? 6
         : 365;
     const lookbackBars =
-      (typeof desiredLookbackBars === "number" ? desiredLookbackBars : undefined) ??
+      (typeof desiredLookbackBars === "number"
+        ? desiredLookbackBars
+        : undefined) ??
       incomingLookbackBars ??
       fallbackLookback;
     const sessionInput = toolArgs.session as "NY" | "LDN" | undefined;
@@ -447,7 +599,8 @@ export async function POST(request: Request) {
       generatedAt: ictPayload.meta?.generatedAt ?? null,
       tz: ictPayload.meta?.tz,
       lastClosedBarTimeISO: ictPayload.meta?.lastClosedBarTimeISO ?? null,
-      includesCurrentBar: ictPayload.meta?.includesCurrentBar ?? includeCurrentBar,
+      includesCurrentBar:
+        ictPayload.meta?.includesCurrentBar ?? includeCurrentBar,
     };
 
     logger.section("=== ICT DATA RECEIVED ===");
@@ -461,9 +614,9 @@ export async function POST(request: Request) {
       lastClosedBarTime: ictPayload.meta?.lastClosedBarTimeISO,
       dateRangeSpan: ictPayload.meta?.range
         ? `${ictPayload.meta.range.start} to ${ictPayload.meta.range.end}`
-        : 'N/A',
+        : "N/A",
       barsCount: ictPayload.meta?.barsCount,
-      lookbackBars: ictPayload.meta?.lookbackBars
+      lookbackBars: ictPayload.meta?.lookbackBars,
     });
     logger.log("Structure:", {
       bias: ictPayload.structure?.bias,
@@ -471,24 +624,27 @@ export async function POST(request: Request) {
       lastChoChAt: ictPayload.structure?.lastChoChAt,
       swingHighs: ictPayload.structure?.swings?.highs?.length || 0,
       swingLows: ictPayload.structure?.swings?.lows?.length || 0,
-      events: ictPayload.structure?.events?.length || 0
+      events: ictPayload.structure?.events?.length || 0,
     });
 
-    logger.log("Order Blocks:", ictPayload.orderBlocks?.map(ob => ({
-      type: ob.type,
-      origin: ob.origin,
-      candleTime: ob.candleTime,
-      rangeLow: ob.range.low,
-      rangeHigh: ob.range.high,
-      score: ob.score,
-      isValid: ob.isValid
-    })));
+    logger.log(
+      "Order Blocks:",
+      ictPayload.orderBlocks?.map((ob) => ({
+        type: ob.type,
+        origin: ob.origin,
+        candleTime: ob.candleTime,
+        rangeLow: ob.range.low,
+        rangeHigh: ob.range.high,
+        score: ob.score,
+        isValid: ob.isValid,
+      }))
+    );
 
     logger.log("Dealing Range:", {
       high: ictPayload.dealingRange?.high,
       low: ictPayload.dealingRange?.low,
       eq: ictPayload.dealingRange?.eq,
-      pdPercent: ictPayload.dealingRange?.pdPercent
+      pdPercent: ictPayload.dealingRange?.pdPercent,
     });
 
     logger.log("Liquidity Zones:", {
@@ -505,38 +661,205 @@ export async function POST(request: Request) {
     logger.section("=== FULL ICT PAYLOAD (what GPT sees) ===");
     logger.debug("Complete ICT Analysis", ictPayload);
 
+    // Build a trimmed primary payload to reduce token load in the second call
+    const trimmedPrimary = {
+      meta: {
+        symbol: ictPayload.meta?.symbol,
+        interval: ictPayload.meta?.interval,
+        lookbackBars: ictPayload.meta?.lookbackBars,
+        barsCount: ictPayload.meta?.barsCount,
+        range: ictPayload.meta?.range,
+        lastClosedBarTimeISO: ictPayload.meta?.lastClosedBarTimeISO,
+        includesCurrentBar:
+          ictPayload.meta?.includesCurrentBar ?? includeCurrentBar,
+        lastBar: ictPayload.meta?.lastBar
+          ? { time: ictPayload.meta.lastBar.time, close: ictPayload.meta.lastBar.close }
+          : null,
+      },
+      structure: {
+        bias: ictPayload.structure?.bias,
+        lastBosAt: ictPayload.structure?.lastBosAt,
+        lastChoChAt: ictPayload.structure?.lastChoChAt,
+        // Only the last 3 events to keep context concise
+        events: (ictPayload.structure?.events || []).slice(-3),
+      },
+      dealingRange: ictPayload.dealingRange
+        ? {
+            low: ictPayload.dealingRange.low,
+            high: ictPayload.dealingRange.high,
+            eq: ictPayload.dealingRange.eq,
+            pdPercent: ictPayload.dealingRange.pdPercent,
+          }
+        : null,
+      // Keep only top 3 OBs by order as produced (assumed already scored)
+      orderBlocks: (ictPayload.orderBlocks || []).slice(0, 3).map((ob) => ({
+        type: ob.type,
+        origin: ob.origin,
+        candleTime: ob.candleTime,
+        range: ob.range,
+        score: ob.score,
+        isValid: ob.isValid,
+        status: ob.status,
+      })),
+      // Keep small summary of FVGs
+      fvg: (ictPayload.fvg || []).slice(0, 2).map((g) => ({
+        type: g.type,
+        startTime: g.startTime,
+        endTime: g.endTime,
+        bounds: g.bounds,
+        ce: g.ce,
+        filled: g.filled,
+        filledRatio: g.filledRatio,
+        potency: g.potency,
+      })),
+      liquidity: {
+        externalHighs: (ictPayload.liquidity?.externalHighs || [])
+          .slice(0, 3)
+          .map((h) => ({ price: h.price })),
+        externalLows: (ictPayload.liquidity?.externalLows || [])
+          .slice(0, 3)
+          .map((l) => ({ price: l.price })),
+      },
+      sessions: {
+        // Include only currently active kill zones, if any
+        killZones: (ictPayload.sessions?.killZones || [])
+          .filter((k) => k.active)
+          .map((k) => ({ name: k.name, start: k.start, end: k.end, active: k.active })),
+      },
+      levels: {
+        prevDayHigh: ictPayload.levels?.prevDayHigh,
+        prevDayLow: ictPayload.levels?.prevDayLow,
+        weeklyHigh: ictPayload.levels?.weeklyHigh,
+        weeklyLow: ictPayload.levels?.weeklyLow,
+      },
+      // Keep the last 2 SMT signals if available
+      smtSignals: (ictPayload.smtSignals || []).slice(-2),
+    };
+
+    // Build the tool response with optional multi-timeframe context
+    const toolResponse: any = {
+      primary: trimmedPrimary,
+    };
+
+    if (hasMtfContext && mtfAnalyses) {
+      logger.section("=== MULTI-TIMEFRAME CONTEXT (from Bias Stack) ===");
+      logger.log("Available timeframes:", Object.keys(mtfAnalyses));
+
+      // Trim multi-TF data to only essential fields to avoid token limit and timeout
+      const trimmedMtf: Record<string, any> = {};
+      for (const [tf, analysis] of Object.entries(mtfAnalyses)) {
+        const ictAnalysis = analysis as ICTAnalysis;
+        trimmedMtf[tf] = {
+          meta: {
+            interval: ictAnalysis.meta?.interval,
+            lastBar: {
+              time: ictAnalysis.meta?.lastBar?.time,
+              close: ictAnalysis.meta?.lastBar?.close,
+            },
+          },
+          structure: {
+            bias: ictAnalysis.structure?.bias,
+            lastBosAt: ictAnalysis.structure?.lastBosAt,
+            lastChoChAt: ictAnalysis.structure?.lastChoChAt,
+            // Only include last 2 events to minimize payload
+            events: ictAnalysis.structure?.events?.slice(-2),
+          },
+          dealingRange: ictAnalysis.dealingRange,
+          // Only include top 2 order blocks instead of 5
+          orderBlocks: ictAnalysis.orderBlocks?.slice(0, 2).map((ob) => ({
+            type: ob.type,
+            origin: ob.origin,
+            candleTime: ob.candleTime,
+            range: ob.range,
+            score: ob.score,
+          })),
+          // Only include top 2 liquidity levels instead of 3
+          liquidity: {
+            externalHighs: ictAnalysis.liquidity?.externalHighs?.slice(0, 2).map((h) => ({
+              price: h.price,
+            })),
+            externalLows: ictAnalysis.liquidity?.externalLows?.slice(0, 2).map((l) => ({
+              price: l.price,
+            })),
+          },
+        };
+      }
+
+      toolResponse.multiTimeframe = trimmedMtf;
+      toolResponse.note =
+        "Multi-timeframe analyses are available from the bias stack. Use 'primary' for the current execution timeframe and 'multiTimeframe' for top-down analysis (daily, 4h, 15min, 5min, 1min).";
+    }
+
+    let toolResponseJson: string;
+    try {
+      toolResponseJson = JSON.stringify(toolResponse);
+    } catch (jsonError) {
+      logger.log("ERROR: Failed to stringify tool response", jsonError);
+      // Fallback to just the primary payload if multi-TF causes issues
+      toolResponseJson = JSON.stringify({ primary: ictPayload });
+    }
+
+    // Log payload size
+    const payloadSizeKB = (toolResponseJson.length / 1024).toFixed(2);
+    logger.log("Tool response payload size:", `${payloadSizeKB} KB`);
+
+    // Create tool response messages for ALL tool calls (OpenAI requires this)
+    const toolResponseMessages = toolCalls.map((tc: any) => ({
+      role: "tool" as const,
+      tool_call_id: tc.id,
+      content: toolResponseJson, // Use the same response for all calls
+    }));
+
     const followUpMessages = [
       ...openAiMessages,
       firstChoice.message,
-      {
-        role: "tool" as const,
-        tool_call_id: toolCall.id,
-        content: JSON.stringify(ictPayload),
-      },
+      ...toolResponseMessages, // Respond to ALL tool calls
     ];
 
     logger.section("=== GPT API CALL 2: WITH ICT DATA ===");
     logger.log("Total messages in context:", followUpMessages.length);
+    logger.log("Tool responses created:", toolResponseMessages.length);
 
     const secondPassPayload = {
       model: DEFAULT_MODEL,
       messages: followUpMessages,
       tools: [ictAnalyzeTool],
-      temperature: 0.7, // Increased from 0.2 for more variation
-      max_tokens: 2000, // Increased from 900 for longer responses
+      // Cap completion length to keep latency reasonable
+      max_tokens: 1200,
+      // Temperature omitted (defaults to 1 for most models)
     };
 
-    const secondPassResponse = await fetch(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify(secondPassPayload),
+    // Add timeout to prevent hanging for too long
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), 60000); // 60 second timeout
+
+    let secondPassResponse;
+    try {
+      secondPassResponse = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify(secondPassPayload),
+          signal: abortController.signal,
+        }
+      );
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === "AbortError") {
+        logger.log("ERROR: OpenAI request timed out after 60 seconds");
+        return NextResponse.json(
+          { error: "Request timed out. The payload might be too large or the model is taking too long to respond." },
+          { status: 504 }
+        );
       }
-    );
+      throw fetchError;
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!secondPassResponse.ok) {
       let errorMessage = "OpenAI follow-up request failed.";
@@ -552,23 +875,46 @@ export async function POST(request: Request) {
     }
 
     const secondPassData = await secondPassResponse.json();
-    const finalReply =
-      secondPassData?.choices?.[0]?.message?.content?.trim() ??
-      "No response generated after ICT analysis.";
+
+    // Check for refusal or empty content
+    const secondChoice = secondPassData?.choices?.[0];
+    const refusal = secondChoice?.message?.refusal;
+    const content = secondChoice?.message?.content?.trim();
 
     logger.section("=== GPT API RESPONSE 2 ===");
+    logger.debug("Full response from GPT:", secondPassData);
     logger.log("Response details:", {
-      finishReason: secondPassData?.choices?.[0]?.finish_reason,
+      finishReason: secondChoice?.finish_reason,
       usage: secondPassData?.usage,
-      replyPreview: finalReply.substring(0, 200) + "..."
+      hasRefusal: !!refusal,
+      hasContent: !!content,
+      contentLength: content?.length || 0,
     });
+
+    if (refusal) {
+      logger.log("ERROR: GPT refused to respond:", refusal);
+      return NextResponse.json(
+        { error: `GPT refused to respond: ${refusal}` },
+        { status: 500 }
+      );
+    }
+
+    const finalReply = content || "No response generated after ICT analysis.";
+
+    logger.log("Reply preview:", finalReply.substring(0, 200) + "...");
     logger.section("=== END REQUEST ===");
 
     // Calculate combined token usage from both API calls
     const combinedUsage = {
-      prompt_tokens: (firstPassData?.usage?.prompt_tokens || 0) + (secondPassData?.usage?.prompt_tokens || 0),
-      completion_tokens: (firstPassData?.usage?.completion_tokens || 0) + (secondPassData?.usage?.completion_tokens || 0),
-      total_tokens: (firstPassData?.usage?.total_tokens || 0) + (secondPassData?.usage?.total_tokens || 0),
+      prompt_tokens:
+        (firstPassData?.usage?.prompt_tokens || 0) +
+        (secondPassData?.usage?.prompt_tokens || 0),
+      completion_tokens:
+        (firstPassData?.usage?.completion_tokens || 0) +
+        (secondPassData?.usage?.completion_tokens || 0),
+      total_tokens:
+        (firstPassData?.usage?.total_tokens || 0) +
+        (secondPassData?.usage?.total_tokens || 0),
     };
 
     logger.log("Combined usage for this conversation turn:", combinedUsage);
@@ -580,33 +926,62 @@ export async function POST(request: Request) {
       if (nextTotal > conversation.token_budget) {
         // Mark closed; do not persist further messages
         await supabase
-          .from('conversations')
-          .update({ status: 'closed', token_used: nextTotal, updated_at: new Date().toISOString() })
-          .eq('id', conversationId);
+          .from("conversations")
+          .update({
+            status: "closed",
+            token_used: nextTotal,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", conversationId);
         return NextResponse.json(
-          { error: 'Conversation token limit reached. Please start a new chat.', usage: combinedUsage },
+          {
+            error: "Conversation token limit reached. Please start a new chat.",
+            usage: combinedUsage,
+          },
           { status: 409 }
         );
       }
 
       // Persist: last user message + assistant reply, and bump usage
-      const lastUser = mergedHistory.filter(m => m.role === 'user').slice(-1)[0];
+      const lastUser = mergedHistory
+        .filter((m) => m.role === "user")
+        .slice(-1)[0];
       if (lastUser) {
-        await supabase.from('messages').insert({ conversation_id: conversationId, role: 'user', content: lastUser.content });
+        await supabase.from("messages").insert({
+          conversation_id: conversationId,
+          role: "user",
+          content: lastUser.content,
+        });
       }
-      await supabase.from('messages').insert({ conversation_id: conversationId, role: 'assistant', content: finalReply, token_prompt: combinedUsage.prompt_tokens ?? null, token_completion: combinedUsage.completion_tokens ?? null });
+      await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        role: "assistant",
+        content: finalReply,
+        token_prompt: combinedUsage.prompt_tokens ?? null,
+        token_completion: combinedUsage.completion_tokens ?? null,
+      });
       await supabase
-        .from('conversations')
+        .from("conversations")
         .update({ token_used: nextTotal, updated_at: new Date().toISOString() })
-        .eq('id', conversationId);
+        .eq("id", conversationId);
     }
 
-    return NextResponse.json({ reply: finalReply, usage: combinedUsage, ictMeta: ictMetaSummary });
+    return NextResponse.json({
+      reply: finalReply,
+      usage: combinedUsage,
+      ictMeta: ictMetaSummary,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unexpected error occurred.";
+    logger.section("=== ERROR IN CHAT API ===");
+    logger.log("Error message:", message);
+    if (error instanceof Error) {
+      logger.log("Error stack:", error.stack);
+    }
+    logger.log("Error details:", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";

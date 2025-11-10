@@ -15,7 +15,7 @@ This module exposes a deterministic ICT (Smart Money Concepts) pipeline that the
   - `orderBlocks`: demand/supply zones identified at the last opposite candle before impulse move, origin (`BOS` | `ChoCH`), refined (defensive body), age, heuristic score.
   - `fvg`: bullish/bearish gaps with bounds and filled flag.
   - `liquidity`: equal highs/lows clusters and external highs/lows.
-  - `sessions`: kill zone windows (NY AM/Lunch/PM, and LDN open/lunch) with `active` flag.
+  - `sessions`: kill zone windows (London 02:00–05:00, NY AM 10:00–11:00, NY PM 14:00–15:00, Asian 20:00–23:59) with `active` flag.
   - `levels`: previous day high/low and prior week high/low when available.
 
 Trimming: swings (last 20), structure events (last 20), order blocks (last 20), fair value gaps (last 30), liquidity clusters (last 10).
@@ -52,7 +52,7 @@ Trimming: swings (last 20), structure events (last 20), order blocks (last 20), 
 - Pivot periods: major `P=5`, minor `P=3`.
 - Liquidity clustering tolerance: `0.1%`.
 - Lookback: intraday defaults to 1,500 bars (4H uses 750, daily 500).
-- Sessions: NY AM 08:30–11:00 (includes pre-market), NY Lunch 11:30–13:30, NY PM 13:30–15:00; LDN Open 02:00–05:00, Lunch 07:00–08:30; Asian 20:00–23:59 (all times in America/New_York).
+- Sessions: London 02:00–05:00 (3–4 “Silver Bullet” window inside), NY AM 10:00–11:00, NY PM 14:00–15:00, Asian 20:00–23:59 (America/New_York timezone).
 - Order block scoring weights recency, proximity to last price, and origin (`BOS` > `ChoCH`).
 - Fair value gap fill detection uses candle bodies overlapping the gap bounds.
 

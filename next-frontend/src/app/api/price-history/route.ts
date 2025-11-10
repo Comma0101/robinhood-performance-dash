@@ -32,6 +32,54 @@ export async function GET(request: Request) {
     );
   }
 
+  // Simple in-memory cache to soften API hiccups and rate limits
+  type CacheEntry = {
+    ts: number;
+    interval: string;
+    bars: AlphaVantageBar[];
+  };
+  const g = globalThis as unknown as { __priceCache?: Map<string, CacheEntry> };
+  if (!g.__priceCache) g.__priceCache = new Map();
+  const cache = g.__priceCache;
+
+  const ttlFor = (i: string) => {
+    if (i === "daily") return 10 * 60 * 1000; // 10m
+    return 60 * 1000; // 1m for intraday
+  };
+
+  const fetchWithRetry = async (url: string, attempts = 3, timeoutMs = 10000) => {
+    let lastError: any = null;
+    for (let i = 0; i < attempts; i++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (res.ok) return res;
+        // Retry on transient errors
+        if ([429, 500, 502, 503, 504].includes(res.status)) {
+          const backoff = Math.min(2000 * (i + 1), 5000) + Math.random() * 250;
+          await new Promise((r) => setTimeout(r, backoff));
+          lastError = new Error(`Alpha Vantage transient status: ${res.status}`);
+          continue;
+        }
+        // Non-retryable
+        throw new Error(`Alpha Vantage API request failed: ${res.status}`);
+      } catch (err: any) {
+        clearTimeout(timeout);
+        if (err?.name === "AbortError") {
+          lastError = new Error("Alpha Vantage request timeout");
+        } else {
+          lastError = err;
+        }
+        // small backoff before next attempt
+        const backoff = Math.min(2000 * (i + 1), 5000) + Math.random() * 250;
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+    throw lastError ?? new Error("Alpha Vantage request failed");
+  };
+
   try {
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -68,9 +116,29 @@ export async function GET(request: Request) {
       effectiveInterval = "daily";
     }
 
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Alpha Vantage API request failed: ${response.status}`);
+    const cacheKey = `${symbol}:${effectiveInterval}`;
+
+    // Try API with retries and timeout
+    let response: Response | null = null;
+    try {
+      response = await fetchWithRetry(url, 3, 10000);
+    } catch (apiErr: any) {
+      // On failure, attempt to serve cached data if present
+      const cached = cache.get(cacheKey);
+      if (cached && Date.now() - cached.ts < 6 * 60 * 60 * 1000 /* 6h max age */) {
+        // Slice cached bars to requested window
+        const bars = cached.bars
+          .filter((b) => {
+            const t = toTimeZoneDate(b.time).getTime();
+            return t >= new Date(startDate).getTime() && t < new Date(endDate).getTime();
+          })
+          .sort((a, b) => toTimeZoneDate(a.time).getTime() - toTimeZoneDate(b.time).getTime());
+        if (bars.length > 0) {
+          return NextResponse.json({ symbol, interval: cached.interval, bars, stale: true });
+        }
+      }
+      // Propagate the original error if no cache is usable
+      throw apiErr;
     }
 
     const data = await response.json();
@@ -195,6 +263,16 @@ export async function GET(request: Request) {
         toTimeZoneDate(a.time).getTime() - toTimeZoneDate(b.time).getTime()
     );
 
+    // Update cache with the full set we fetched for this interval
+    try {
+      const now = Date.now();
+      const existing = cache.get(cacheKey);
+      const isFresh = existing && now - existing.ts < ttlFor(effectiveInterval);
+      if (!isFresh) {
+        cache.set(cacheKey, { ts: now, interval: effectiveInterval, bars: allBars });
+      }
+    } catch {}
+
     return NextResponse.json({
       symbol,
       interval: effectiveInterval,
@@ -202,9 +280,9 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("Error fetching price history:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch price history" },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : "Failed to fetch price history";
+    const isRateOrService = /rate limit|timeout|transient status|503|502|504/i.test(message);
+    const status = isRateOrService ? 503 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

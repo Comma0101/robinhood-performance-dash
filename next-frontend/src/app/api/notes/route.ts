@@ -18,6 +18,20 @@ interface TradeNote {
   notes?: string;
 }
 
+interface AITradePlan {
+  symbol: string;
+  timeframe: string;
+  horizon?: string;
+  strategy?: string;
+  entry?: string;
+  stop?: string;
+  targets?: Array<number | string>;
+  confluence?: string[];
+  risk?: string;
+  createdAt: string;
+  source?: "agent" | "manual";
+}
+
 interface DayNote {
   dateISO: string;
 
@@ -61,6 +75,9 @@ interface DayNote {
   tags?: string[];
   rating?: number; // 1-5 stars for the day
   lastUpdated: string;
+
+  // AI trade plans captured from the chat agent
+  aiPlans?: AITradePlan[];
 }
 
 interface NotesData {

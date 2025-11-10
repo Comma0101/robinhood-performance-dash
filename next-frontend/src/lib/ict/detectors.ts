@@ -1312,15 +1312,13 @@ const sessionKillZones: Record<
   { name: string; startHour: number; startMinute: number; endHour: number; endMinute: number }[]
 > = {
   NY: [
-    // Fixed ICT timing: AM Kill Zone includes pre-market (8:30-11:00 ET)
-    { name: "NY AM Kill Zone", startHour: 8, startMinute: 30, endHour: 11, endMinute: 0 },
-    { name: "NY Lunch", startHour: 11, startMinute: 30, endHour: 13, endMinute: 30 },
-    { name: "NY PM Kill Zone", startHour: 13, startMinute: 30, endHour: 15, endMinute: 0 },
+    // ICT reference: core execution windows are 10:00-11:00 ET and 14:00-15:00 ET
+    { name: "NY AM Kill Zone", startHour: 10, startMinute: 0, endHour: 11, endMinute: 0 },
+    { name: "NY PM Kill Zone", startHour: 14, startMinute: 0, endHour: 15, endMinute: 0 },
   ],
   LDN: [
-    // London Kill Zone: 2:00-5:00 AM ET (prime hour 3:00-4:00)
+    // London Kill Zone: 2:00-5:00 AM ET (with 03:00-04:00 Silver Bullet alignment inside)
     { name: "London Kill Zone", startHour: 2, startMinute: 0, endHour: 5, endMinute: 0 },
-    { name: "London Lunch", startHour: 7, startMinute: 0, endHour: 8, endMinute: 30 },
   ],
   ASIAN: [
     // Asian Kill Zone: 20:00-00:00 ET (8 PM to midnight)
