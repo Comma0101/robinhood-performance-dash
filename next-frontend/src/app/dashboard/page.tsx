@@ -29,6 +29,7 @@ import JournalEntries from "@/components/JournalEntries";
 import CsvUploader from "@/components/CsvUploader";
 import DataVerification from "@/components/DataVerification";
 import { startOfDay, endOfDay, isWithinInterval } from "date-fns";
+import { useGlobalUI } from "@/context/GlobalUIContext";
 
 interface Trade {
   symbol: string;
@@ -60,13 +61,13 @@ const calculateSummary = (trades: Trade[]) => {
 
   // Ensure we're working with valid trades with P/L values
   const validTrades = trades.filter((t) => t && typeof t.pnl === "number" && !isNaN(t.pnl));
-  
+
   // Calculate total P/L from filtered trades (this is what's currently visible)
   const total_pl = validTrades.reduce((acc, t) => {
     const pnl = typeof t.pnl === "number" && !isNaN(t.pnl) ? t.pnl : 0;
     return acc + pnl;
   }, 0);
-  
+
   // Count wins and losses from the filtered trades
   const wins = validTrades.filter((t) => t.status === "Win").length;
   const losses = validTrades.filter((t) => t.status === "Loss").length;
@@ -144,15 +145,29 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [dateRangeStart, setDateRangeStart] = useState<Date | null>(null);
   const [dateRangeEnd, setDateRangeEnd] = useState<Date | null>(null);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [achievementsPanelOpen, setAchievementsPanelOpen] = useState(false);
+
+  const {
+    isCommandPaletteOpen,
+    openCommandPalette,
+    closeCommandPalette,
+    isUploaderOpen,
+    openUploader,
+    closeUploader,
+    isVerificationOpen,
+    openVerification,
+    closeVerification,
+    isAchievementsOpen,
+    openAchievements,
+    closeAchievements,
+    isSettingsOpen,
+    openSettings,
+    closeSettings,
+  } = useGlobalUI();
+
   const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>(
     []
   );
   const [newAchievement, setNewAchievement] = useState<string | null>(null);
-  const [customizerOpen, setCustomizerOpen] = useState(false);
-  const [uploaderOpen, setUploaderOpen] = useState(false);
-  const [verificationOpen, setVerificationOpen] = useState(false);
 
   // Dashboard layout customization
   const { layout, updateLayout, loadPreset, resetLayout } =
@@ -203,7 +218,7 @@ export default function Home() {
       // Command Palette: Cmd/Ctrl + K
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setCommandPaletteOpen(true);
+        openCommandPalette();
       }
 
       // Focus search: Cmd/Ctrl + /
@@ -248,7 +263,7 @@ export default function Home() {
         document.activeElement?.tagName !== "INPUT" &&
         document.activeElement?.tagName !== "TEXTAREA"
       ) {
-        setAchievementsPanelOpen(true);
+        openAchievements();
       }
 
       // Open Settings: S
@@ -260,21 +275,21 @@ export default function Home() {
         document.activeElement?.tagName !== "INPUT" &&
         document.activeElement?.tagName !== "TEXTAREA"
       ) {
-        setCustomizerOpen(true);
+        openSettings();
       }
 
       // Close modals/palette: Escape
       if (e.key === "Escape") {
-        if (commandPaletteOpen) {
-          setCommandPaletteOpen(false);
-        } else if (achievementsPanelOpen) {
-          setAchievementsPanelOpen(false);
-        } else if (customizerOpen) {
-          setCustomizerOpen(false);
-        } else if (uploaderOpen) {
-          setUploaderOpen(false);
-        } else if (verificationOpen) {
-          setVerificationOpen(false);
+        if (isCommandPaletteOpen) {
+          closeCommandPalette();
+        } else if (isAchievementsOpen) {
+          closeAchievements();
+        } else if (isSettingsOpen) {
+          closeSettings();
+        } else if (isUploaderOpen) {
+          closeUploader();
+        } else if (isVerificationOpen) {
+          closeVerification();
         } else if (selectedTrade) {
           closeModal();
         }
@@ -284,12 +299,20 @@ export default function Home() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    commandPaletteOpen,
+    isCommandPaletteOpen,
     selectedTrade,
-    achievementsPanelOpen,
-    customizerOpen,
-    uploaderOpen,
-    verificationOpen,
+    isAchievementsOpen,
+    isSettingsOpen,
+    isUploaderOpen,
+    isVerificationOpen,
+    openCommandPalette,
+    closeCommandPalette,
+    openAchievements,
+    closeAchievements,
+    openSettings,
+    closeSettings,
+    closeUploader,
+    closeVerification,
   ]);
 
   const fetchTrades = async () => {
@@ -607,7 +630,7 @@ export default function Home() {
       label: "View Achievements",
       description: "See your unlocked achievements",
       shortcut: "A",
-      action: () => setAchievementsPanelOpen(true),
+      action: () => openAchievements(),
       category: "Navigation",
     },
     {
@@ -615,21 +638,21 @@ export default function Home() {
       label: "Dashboard Settings",
       description: "Customize dashboard layout and widgets",
       shortcut: "S",
-      action: () => setCustomizerOpen(true),
+      action: () => openSettings(),
       category: "Navigation",
     },
     {
       id: "upload-csv",
       label: "Upload CSV File",
       description: "Upload a new Robinhood CSV export",
-      action: () => setUploaderOpen(true),
+      action: () => openUploader(),
       category: "Actions",
     },
     {
       id: "verify-data",
       label: "Verify Data Processing",
       description: "Check data processing integrity and statistics",
-      action: () => setVerificationOpen(true),
+      action: () => openVerification(),
       category: "Actions",
     },
   ];
@@ -666,204 +689,7 @@ export default function Home() {
 
   return (
     <div className="container">
-      <header className="header">
-        <div className="header-left">
-          <h1>Trading Dashboard</h1>
-          <nav className="header-nav">
-            <button
-              onClick={() => setActiveView("Dashboard")}
-              className={`nav-item ${activeView === "Dashboard" ? "active" : ""}`}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M2 3L8 1L14 3V6.5C14 10 11.5 13.5 8 15C4.5 13.5 2 10 2 6.5V3Z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span>Dashboard</span>
-            </button>
-            <button
-              onClick={() => setActiveView("Calendar")}
-              className={`nav-item ${activeView === "Calendar" ? "active" : ""}`}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <rect
-                  x="3"
-                  y="4"
-                  width="10"
-                  height="10"
-                  rx="1"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                />
-                <path d="M3 7H13" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M6 2V5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M10 2V5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-              <span>Calendar</span>
-            </button>
-            <button
-              onClick={() => router.push("/command-center")}
-              className="nav-item nav-item-command-center"
-              title="Open AI Command Center"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M8 1.5L9.76 5.4l3.9.33-2.97 2.57.9 3.8L8 10.9l-3.59 2.2.9-3.8L2.34 5.73l3.9-.33L8 1.5Z"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span className="nav-item-text">
-                Command Center
-                <span className="nav-item-badge">AI</span>
-              </span>
-            </button>
-            <button
-              onClick={() => router.push("/chart-view")}
-              className="nav-item"
-              title="Open Chart Workspace"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M2 11L5.5 7.5L8.5 10.5L12 5L14 7"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M2 13H14"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-              <span>Chart Workspace</span>
-            </button>
-          </nav>
-        </div>
-
-        <div className="header-actions">
-          {/* Primary Actions - Always Visible */}
-          <button
-            onClick={() => setCommandPaletteOpen(true)}
-            className="header-btn header-btn-primary"
-            title="Search (⌘K)"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle
-                cx="7"
-                cy="7"
-                r="4.5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              />
-              <path
-                d="M10.5 10.5L13.5 13.5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-            <span className="header-btn-text">Search</span>
-            <kbd className="header-kbd">
-              <span>⌘</span>
-              <span>K</span>
-            </kbd>
-          </button>
-
-          {/* Secondary Actions - Grouped */}
-          <div className="header-actions-group">
-            <button
-              onClick={() => setUploaderOpen(true)}
-              className="header-btn header-btn-accent"
-              title="Upload CSV File"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M8 11V3M8 3L5 6M8 3L11 6"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M3 13H13"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-              <span className="header-btn-text">Upload</span>
-            </button>
-
-            <button
-              onClick={() => setVerificationOpen(true)}
-              className="header-btn"
-              title="Verify Data Processing"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M3 8L6 11L13 4"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span className="header-btn-text">Verify</span>
-            </button>
-
-            <button
-              onClick={() => setAchievementsPanelOpen(true)}
-              className="header-btn"
-              title="View Achievements (A)"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M8 1L10 5.5L15 6L11.5 9L12.5 14L8 11.5L3.5 14L4.5 9L1 6L6 5.5L8 1Z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span className="header-btn-text">Achievements</span>
-            </button>
-
-            <ExportMenu trades={filteredAndSortedTrades} summary={summary} />
-
-            <button
-              onClick={() => setCustomizerOpen(true)}
-              className="header-btn"
-              title="Dashboard Settings (S)"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <circle
-                  cx="8"
-                  cy="8"
-                  r="2.5"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                />
-                <path
-                  d="M8 1V3M8 13V15M15 8H13M3 8H1M13.364 2.636L11.95 4.05M4.05 11.95L2.636 13.364M13.364 13.364L11.95 11.95M4.05 4.05L2.636 2.636"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-              <span className="header-btn-text">Settings</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* Header removed - using global Header in layout */}
 
       {/* Global Sticky Filter Bar */}
       {activeView === "Dashboard" && (
@@ -931,39 +757,39 @@ export default function Home() {
               pills={[
                 ...(filterSymbol
                   ? [
-                      {
-                        id: "symbol",
-                        label: "Symbol",
-                        value: filterSymbol,
-                      },
-                    ]
+                    {
+                      id: "symbol",
+                      label: "Symbol",
+                      value: filterSymbol,
+                    },
+                  ]
                   : []),
                 ...(filterType !== "all"
                   ? [
-                      {
-                        id: "type",
-                        label: "Type",
-                        value: filterType,
-                      },
-                    ]
+                    {
+                      id: "type",
+                      label: "Type",
+                      value: filterType,
+                    },
+                  ]
                   : []),
                 ...(filterStatus !== "all"
                   ? [
-                      {
-                        id: "status",
-                        label: "Status",
-                        value: filterStatus,
-                      },
-                    ]
+                    {
+                      id: "status",
+                      label: "Status",
+                      value: filterStatus,
+                    },
+                  ]
                   : []),
                 ...(dateRangeStart && dateRangeEnd
                   ? [
-                      {
-                        id: "dateRange",
-                        label: "Date Range",
-                        value: `${dateRangeStart.toLocaleDateString()} - ${dateRangeEnd.toLocaleDateString()}`,
-                      },
-                    ]
+                    {
+                      id: "dateRange",
+                      label: "Date Range",
+                      value: `${dateRangeStart.toLocaleDateString()} - ${dateRangeEnd.toLocaleDateString()}`,
+                    },
+                  ]
                   : []),
               ]}
               onRemove={(id) => {
@@ -996,9 +822,8 @@ export default function Home() {
                   )}
                 </div>
                 <div
-                  className={`stat-value count-up ${
-                    summary.total_pl >= 0 ? "positive" : "negative"
-                  }`}
+                  className={`stat-value count-up ${summary.total_pl >= 0 ? "positive" : "negative"
+                    }`}
                 >
                   $
                   {animatedTotalPL.toLocaleString(undefined, {
@@ -1069,15 +894,15 @@ export default function Home() {
               {(layout.showJournal ||
                 layout.showCharts ||
                 layout.showTradeLog) && (
-                <div
-                  style={{
-                    height: "1px",
-                    background:
-                      "linear-gradient(to right, transparent, var(--border-default), transparent)",
-                    margin: "2rem 0",
-                  }}
-                />
-              )}
+                  <div
+                    style={{
+                      height: "1px",
+                      background:
+                        "linear-gradient(to right, transparent, var(--border-default), transparent)",
+                      margin: "2rem 0",
+                    }}
+                  />
+                )}
             </>
           )}
 
@@ -1167,8 +992,8 @@ export default function Home() {
                             trade.status === "Win"
                               ? "positive"
                               : trade.status === "Loss"
-                              ? "negative"
-                              : "breakeven"
+                                ? "negative"
+                                : "breakeven"
                           }
                         >
                           $
@@ -1235,8 +1060,8 @@ export default function Home() {
                     selectedTrade.status === "Win"
                       ? "positive"
                       : selectedTrade.status === "Loss"
-                      ? "negative"
-                      : "breakeven"
+                        ? "negative"
+                        : "breakeven"
                   }
                 >
                   {selectedTrade.status}
@@ -1249,8 +1074,8 @@ export default function Home() {
                     selectedTrade.status === "Win"
                       ? "positive"
                       : selectedTrade.status === "Loss"
-                      ? "negative"
-                      : "breakeven"
+                        ? "negative"
+                        : "breakeven"
                   }
                 >
                   $
@@ -1295,22 +1120,22 @@ export default function Home() {
       </Modal>
 
       <CommandPalette
-        isOpen={commandPaletteOpen}
-        onClose={() => setCommandPaletteOpen(false)}
+        isOpen={isCommandPaletteOpen}
+        onClose={closeCommandPalette}
         commands={commands}
       />
 
       <AchievementsPanel
-        isOpen={achievementsPanelOpen}
-        onClose={() => setAchievementsPanelOpen(false)}
-        trades={allTrades as AchievementTrade[]}
+        isOpen={isAchievementsOpen}
+        onClose={closeAchievements}
+        trades={allTrades}
         summary={summary}
         unlockedIds={unlockedAchievements}
       />
 
       <DashboardCustomizer
-        isOpen={customizerOpen}
-        onClose={() => setCustomizerOpen(false)}
+        isOpen={isSettingsOpen}
+        onClose={closeSettings}
         layout={layout}
         onUpdateLayout={updateLayout}
         onLoadPreset={loadPreset}
@@ -1318,7 +1143,7 @@ export default function Home() {
       />
 
       {/* CSV Uploader Modal */}
-      <Modal isOpen={uploaderOpen} onClose={() => setUploaderOpen(false)}>
+      <Modal isOpen={isUploaderOpen} onClose={closeUploader}>
         <div>
           <h2 className="text-2xl font-bold mb-4 text-text-primary">
             Upload CSV File
@@ -1332,7 +1157,7 @@ export default function Home() {
       </Modal>
 
       {/* Data Verification Modal */}
-      <Modal isOpen={verificationOpen} onClose={() => setVerificationOpen(false)}>
+      <Modal isOpen={isVerificationOpen} onClose={closeVerification}>
         <div>
           <h2 className="text-2xl font-bold mb-4 text-text-primary">
             Data Processing Verification

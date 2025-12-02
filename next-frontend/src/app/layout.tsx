@@ -35,6 +35,9 @@ export const viewport: Viewport = {
   maximumScale: 1,
 };
 
+import Header from "@/components/Header";
+import { GlobalUIProvider } from "@/context/GlobalUIContext";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -46,7 +49,12 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <GlobalUIProvider>
+          <Header />
+          <main className="pt-40 min-h-screen">
+            {children}
+          </main>
+        </GlobalUIProvider>
       </body>
     </html>
   );

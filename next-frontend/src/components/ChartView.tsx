@@ -33,11 +33,11 @@ type TradePlan = {
   timeframe: string;
   horizon?: string;
   strategy?: string;
-  entry?: string;
-  stop?: string;
-  targets?: Array<number | string>;
-  confluence?: string[];
-  risk?: string;
+  entry?: string | { level?: string; criterion?: string } | Record<string, any>;
+  stop?: string | { level?: string; criterion?: string } | Record<string, any>;
+  targets?: Array<number | string | { level?: string; criterion?: string } | Record<string, any>>;
+  confluence?: Array<string | { level?: string; criterion?: string } | Record<string, any>>;
+  risk?: string | { level?: string; criterion?: string } | Record<string, any>;
 };
 
 // Extract first ```json ... ``` block and return parsed plan + remaining text as rationale
@@ -903,7 +903,7 @@ const ChartView: React.FC = () => {
     return `${map.year}-${map.month}-${map.day}`;
   };
 
-  const savePlanToNotes = async (messageId: string, plan: TradePlan) => {
+  const savePlanToNotes = async (messageId: string, plan: TradePlan, messageSymbol: string) => {
     try {
       setPlanSaveStatus((s) => ({ ...s, [messageId]: "saving" }));
       const dateISO = getTodayISOInTZ();
@@ -912,7 +912,7 @@ const ChartView: React.FC = () => {
       const existing = await getRes.json();
       const existingPlans: any[] = Array.isArray(existing?.aiPlans) ? existing.aiPlans : [];
       const newPlan = {
-        symbol,
+        symbol: messageSymbol, // Use the symbol from when the message was created
         timeframe: plan.timeframe,
         horizon: plan.horizon,
         strategy: plan.strategy,
@@ -985,7 +985,7 @@ const ChartView: React.FC = () => {
             const { plan } = extractPlanFromContent(msg.content);
             if (plan) {
               const planKey = keyOf({
-                symbol,
+                symbol: msg.symbol, // Use the symbol from when the message was created
                 timeframe: plan.timeframe,
                 horizon: plan.horizon,
                 strategy: plan.strategy,
@@ -1013,7 +1013,7 @@ const ChartView: React.FC = () => {
     if (messages.length > 0) {
       checkSavedPlans();
     }
-  }, [messages, symbol]);
+  }, [messages]); // Only depend on messages, not symbol state
 
   const toggleChat = () => {
     setIsChatVisible(!isChatVisible);
@@ -1125,7 +1125,7 @@ const ChartView: React.FC = () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            symbol,
+            symbol: requestSymbol, // Use captured symbol to prevent race conditions
             timeframe: activeTimeframe,
             messages: trimmedHistory,
             conversationId,
@@ -2631,7 +2631,7 @@ const ChartView: React.FC = () => {
                                               ? "bg-error/20 text-error-text border border-error/30 hover:bg-error/30"
                                               : "bg-primary text-text-inverted hover:bg-primary-hover"
                                           }`}
-                                          onClick={() => savePlanToNotes(message.id, plan)}
+                                          onClick={() => savePlanToNotes(message.id, plan, message.symbol)}
                                           disabled={planSaveStatus[message.id] === "saving" || planSaveStatus[message.id] === "saved"}
                                         >
                                           {planSaveStatus[message.id] === "saving" && "⏳ Saving..."}
@@ -2649,24 +2649,41 @@ const ChartView: React.FC = () => {
                                       <div className="grid grid-cols-2 gap-3">
                                         <div>
                                           <div className="text-text-tertiary">Entry</div>
-                                          <div className="font-semibold text-success">{plan.entry || "—"}</div>
+                                          <div className="font-semibold text-success">
+                                            {typeof plan.entry === 'object' && plan.entry !== null
+                                              ? JSON.stringify(plan.entry)
+                                              : plan.entry || "—"}
+                                          </div>
                                         </div>
                                         <div>
                                           <div className="text-text-tertiary">Stop</div>
-                                          <div className="font-semibold text-error-text">{plan.stop || "—"}</div>
+                                          <div className="font-semibold text-error-text">
+                                            {typeof plan.stop === 'object' && plan.stop !== null
+                                              ? JSON.stringify(plan.stop)
+                                              : plan.stop || "—"}
+                                          </div>
                                         </div>
                                       </div>
                                       <div>
                                         <div className="text-text-tertiary">Targets</div>
                                         <div className="flex flex-wrap gap-1 pt-1">
-                                          {(plan.targets || []).map((t, i) => (
-                                            <span
-                                              key={`${t}-${i}`}
-                                              className="rounded-md bg-background-subtle px-2 py-0.5 text-text-primary"
-                                            >
-                                              {t}
-                                            </span>
-                                          ))}
+                                          {(plan.targets || []).map((t, i) => {
+                                            // Handle both primitive and object formats
+                                            const displayText = typeof t === 'string' || typeof t === 'number'
+                                              ? String(t)
+                                              : typeof t === 'object' && t !== null && 'level' in t && 'criterion' in t
+                                              ? `${t.level}: ${t.criterion}`
+                                              : JSON.stringify(t);
+
+                                            return (
+                                              <span
+                                                key={`${displayText}-${i}`}
+                                                className="rounded-md bg-background-subtle px-2 py-0.5 text-text-primary"
+                                              >
+                                                {displayText}
+                                              </span>
+                                            );
+                                          })}
                                           {(!plan.targets || plan.targets.length === 0) && (
                                             <span className="text-text-secondary">—</span>
                                           )}
@@ -2674,19 +2691,32 @@ const ChartView: React.FC = () => {
                                       </div>
                                       <div>
                                         <div className="text-text-tertiary">Risk</div>
-                                        <div className="font-medium">{plan.risk || "—"}</div>
+                                        <div className="font-medium">
+                                          {typeof plan.risk === 'object' && plan.risk !== null
+                                            ? JSON.stringify(plan.risk)
+                                            : plan.risk || "—"}
+                                        </div>
                                       </div>
                                       <div className="col-span-2">
                                         <div className="text-text-tertiary">Confluence</div>
                                         <div className="flex flex-wrap gap-1 pt-1">
-                                          {(plan.confluence || []).map((c, i) => (
-                                            <span
-                                              key={`${c}-${i}`}
-                                              className="rounded-md border border-border bg-background px-2 py-0.5 text-text-secondary"
-                                            >
-                                              {c}
-                                            </span>
-                                          ))}
+                                          {(plan.confluence || []).map((c, i) => {
+                                            // Handle both string and object formats
+                                            const displayText = typeof c === 'string'
+                                              ? c
+                                              : typeof c === 'object' && c !== null && 'level' in c && 'criterion' in c
+                                              ? `${c.level}: ${c.criterion}`
+                                              : JSON.stringify(c);
+
+                                            return (
+                                              <span
+                                                key={`${displayText}-${i}`}
+                                                className="rounded-md border border-border bg-background px-2 py-0.5 text-text-secondary"
+                                              >
+                                                {displayText}
+                                              </span>
+                                            );
+                                          })}
                                           {(!plan.confluence || plan.confluence.length === 0) && (
                                             <span className="text-text-secondary">—</span>
                                           )}

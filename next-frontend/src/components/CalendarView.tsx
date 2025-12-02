@@ -199,9 +199,8 @@ const DayCell: React.FC<{
 
   return (
     <div
-      className={`day-cell ${isTodayFlag ? "today" : ""} ${
-        isFocused ? "focused" : ""
-      }`}
+      className={`day-cell ${isTodayFlag ? "today" : ""} ${isFocused ? "focused" : ""
+        }`}
       style={{ opacity }}
       aria-current={isTodayFlag ? "date" : undefined}
     >
@@ -249,80 +248,37 @@ const CalendarGrid: React.FC<{
   setFocusedDate,
   notes,
 }) => {
-  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-  const maxPnl = useMemo(() => {
-    return Object.values(summaries).reduce(
-      (max, s) => Math.max(max, Math.abs(s.netPnL)),
-      0
-    );
-  }, [summaries]);
+    const maxPnl = useMemo(() => {
+      return Object.values(summaries).reduce(
+        (max, s) => Math.max(max, Math.abs(s.netPnL)),
+        0
+      );
+    }, [summaries]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    e.preventDefault();
-    switch (e.key) {
-      case "ArrowRight":
-        setFocusedDate(addDays(focusedDate, 1));
-        break;
-      case "ArrowLeft":
-        setFocusedDate(subDays(focusedDate, 1));
-        break;
-      case "ArrowUp":
-        setFocusedDate(subDays(focusedDate, 7));
-        break;
-      case "ArrowDown":
-        setFocusedDate(addDays(focusedDate, 7));
-        break;
-      case "Enter":
-        const dateISO = format(focusedDate, "yyyy-MM-dd");
-        const summary = summaries[dateISO];
-        if (summary) {
-          setSelectedDay(summary);
-        } else {
-          // Allow opening drawer for days without trades
-          const minimalSummary: DaySummary = {
-            dateISO,
-            tradesCount: 0,
-            wins: 0,
-            losses: 0,
-            netPnL: 0,
-            detail: { trades: [] },
-            note: notes[dateISO],
-          };
-          setSelectedDay(minimalSummary);
-        }
-        break;
-    }
-  };
-
-  return (
-    <div className="calendar-grid" onKeyDown={handleKeyDown} tabIndex={0}>
-      {weekdays.map((day) => (
-        <div key={day} className="weekday-header">
-          {day}
-        </div>
-      ))}
-      {days.map((day) => {
-        const dateISO = format(day, "yyyy-MM-dd");
-        const summary = summaries[dateISO];
-
-        const handleMouseEnter = (e: React.MouseEvent) => {
-          if (summary) {
-            setHoveredDay(summary);
-            setTooltipPosition({ x: e.clientX, y: e.clientY });
-          }
-        };
-
-        const handleMouseLeave = () => {
-          setHoveredDay(null);
-        };
-
-        const handleClick = () => {
-          // Allow clicking any day, create minimal summary if none exists
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+      e.preventDefault();
+      switch (e.key) {
+        case "ArrowRight":
+          setFocusedDate(addDays(focusedDate, 1));
+          break;
+        case "ArrowLeft":
+          setFocusedDate(subDays(focusedDate, 1));
+          break;
+        case "ArrowUp":
+          setFocusedDate(subDays(focusedDate, 7));
+          break;
+        case "ArrowDown":
+          setFocusedDate(addDays(focusedDate, 7));
+          break;
+        case "Enter":
+          const dateISO = format(focusedDate, "yyyy-MM-dd");
+          const summary = summaries[dateISO];
           if (summary) {
             setSelectedDay(summary);
           } else {
-            // Create a minimal day summary for days without trades
+            // Allow opening drawer for days without trades
             const minimalSummary: DaySummary = {
               dateISO,
               tradesCount: 0,
@@ -334,29 +290,72 @@ const CalendarGrid: React.FC<{
             };
             setSelectedDay(minimalSummary);
           }
-        };
+          break;
+      }
+    };
 
-        return (
-          <div
-            key={day.toISOString()}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
-            onClick={handleClick}
-            onFocus={() => setFocusedDate(day)}
-          >
-            <DayCell
-              day={day}
-              isCurrentMonth={isSameMonth(day, currentDate)}
-              summary={summary}
-              isFocused={isSameDay(day, focusedDate)}
-              maxPnl={maxPnl}
-            />
+    return (
+      <div className="calendar-grid" onKeyDown={handleKeyDown} tabIndex={0}>
+        {weekdays.map((day) => (
+          <div key={day} className="weekday-header">
+            {day}
           </div>
-        );
-      })}
-    </div>
-  );
-};
+        ))}
+        {days.map((day) => {
+          const dateISO = format(day, "yyyy-MM-dd");
+          const summary = summaries[dateISO];
+
+          const handleMouseEnter = (e: React.MouseEvent) => {
+            if (summary) {
+              setHoveredDay(summary);
+              setTooltipPosition({ x: e.clientX, y: e.clientY });
+            }
+          };
+
+          const handleMouseLeave = () => {
+            setHoveredDay(null);
+          };
+
+          const handleClick = () => {
+            // Allow clicking any day, create minimal summary if none exists
+            if (summary) {
+              setSelectedDay(summary);
+            } else {
+              // Create a minimal day summary for days without trades
+              const minimalSummary: DaySummary = {
+                dateISO,
+                tradesCount: 0,
+                wins: 0,
+                losses: 0,
+                netPnL: 0,
+                detail: { trades: [] },
+                note: notes[dateISO],
+              };
+              setSelectedDay(minimalSummary);
+            }
+          };
+
+          return (
+            <div
+              key={day.toISOString()}
+              onMouseEnter={handleMouseEnter}
+              onMouseLeave={handleMouseLeave}
+              onClick={handleClick}
+              onFocus={() => setFocusedDate(day)}
+            >
+              <DayCell
+                day={day}
+                isCurrentMonth={isSameMonth(day, currentDate)}
+                summary={summary}
+                isFocused={isSameDay(day, focusedDate)}
+                maxPnl={maxPnl}
+              />
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
 const DayTooltip: React.FC<{
   summary: DaySummary;
@@ -425,20 +424,25 @@ const TradeListItem: React.FC<{ trade: TradeDetail }> = ({ trade }) => {
   );
 };
 
+import { getMorningReport, type PreMarketReport } from "@/lib/api/reports";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+const MarkdownRenderer = ({ content }: { content: string }) => {
+  return (
+    <div className="prose prose-invert max-w-none prose-p:text-gray-300 prose-p:leading-relaxed prose-headings:text-white prose-strong:text-white prose-a:text-blue-400 prose-ul:list-disc prose-ul:pl-4 prose-ol:list-decimal prose-ol:pl-4">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    </div>
+  );
+};
+
 const DayDrawer: React.FC<{
   summary: DaySummary;
   onClose: () => void;
-  onNoteUpdate: (dateISO: string, note: DayNote) => void;
-}> = ({ summary, onClose, onNoteUpdate }) => {
-  const [isEditingNote, setIsEditingNote] = useState(false);
-  const [showJournal, setShowJournal] = useState(false);
-  const [preMarketPlan, setPreMarketPlan] = useState(
-    summary.note?.preMarketPlan || ""
-  );
-  const [postDaySummary, setPostDaySummary] = useState(
-    summary.note?.postDaySummary || ""
-  );
-  const [isSaving, setIsSaving] = useState(false);
+}> = ({ summary, onClose }) => {
+  const [report, setReport] = useState<PreMarketReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"pre" | "post">("pre");
 
   const winRate =
     summary.tradesCount > 0
@@ -461,32 +465,32 @@ const DayDrawer: React.FC<{
     };
   }, [handleKeyDown]);
 
-  const handleSaveNote = async () => {
-    setIsSaving(true);
-    try {
-      const response = await fetch("/api/notes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          dateISO: summary.dateISO,
-          preMarketPlan,
-          postDaySummary,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        onNoteUpdate(summary.dateISO, data.note);
-        setIsEditingNote(false);
+  // Fetch report when summary changes
+  useEffect(() => {
+    const fetchReport = async () => {
+      setLoading(true);
+      try {
+        // summary.dateISO is YYYY-MM-DD
+        const data = await getMorningReport(summary.dateISO, "QQQ");
+        setReport(data);
+        // Default to post-market if available, else pre-market
+        if (data.post_market_summary) {
+          setActiveTab("post");
+        } else {
+          setActiveTab("pre");
+        }
+      } catch (error) {
+        console.log("No report found for date:", summary.dateISO);
+        setReport(null);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Error saving note:", error);
-    } finally {
-      setIsSaving(false);
+    };
+
+    if (summary.dateISO) {
+      fetchReport();
     }
-  };
+  }, [summary.dateISO]);
 
   // Correct for timezone offset when displaying
   const date = new Date(summary.dateISO);
@@ -495,8 +499,11 @@ const DayDrawer: React.FC<{
 
   return (
     <div className="day-drawer-overlay" onClick={onClose}>
-      <div className="day-drawer" onClick={(e) => e.stopPropagation()}>
-        <button className="drawer-close" onClick={onClose}>
+      <div
+        className="day-drawer max-h-[85vh] overflow-y-auto custom-scrollbar"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button className="drawer-close sticky top-0 right-0 z-10" onClick={onClose}>
           &times;
         </button>
         <h2>{format(correctedDate, "eeee, MMMM d")}</h2>
@@ -506,115 +513,93 @@ const DayDrawer: React.FC<{
           <span>{winRate}% win rate</span>
         </div>
 
-        {/* Notes Section */}
+        {/* AI Analysis Section */}
         <div className="drawer-notes-section">
-          <div className="notes-header">
-            <h3>📝 Trading Notes</h3>
-            <div className="note-actions">
-              <button
-                className="edit-note-btn"
-                onClick={() => setShowJournal(true)}
-                style={{ marginRight: "0.5rem" }}
-              >
-                📔 Full Journal
-              </button>
-              {!isEditingNote ? (
+          <div className="notes-header mb-4">
+            <h3>🤖 AI Analysis</h3>
+            {report && (
+              <div className="flex gap-2 text-sm">
                 <button
-                  className="edit-note-btn"
-                  onClick={() => setIsEditingNote(true)}
+                  onClick={() => setActiveTab("pre")}
+                  className={`px-3 py-1 rounded-full transition-colors ${activeTab === 'pre' ? 'bg-blue-500/20 text-blue-400' : 'text-gray-500 hover:text-gray-300'}`}
                 >
-                  {summary.note?.preMarketPlan || summary.note?.postDaySummary
-                    ? "Quick Edit"
-                    : "Quick Add"}
+                  Pre-Market
                 </button>
-              ) : (
-                <>
-                  <button
-                    className="save-note-btn"
-                    onClick={handleSaveNote}
-                    disabled={isSaving}
-                  >
-                    {isSaving ? "Saving..." : "Save"}
-                  </button>
-                  <button
-                    className="cancel-note-btn"
-                    onClick={() => {
-                      setIsEditingNote(false);
-                      setPreMarketPlan(summary.note?.preMarketPlan || "");
-                      setPostDaySummary(summary.note?.postDaySummary || "");
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </>
-              )}
-            </div>
+                <button
+                  onClick={() => setActiveTab("post")}
+                  disabled={!report.post_market_summary}
+                  className={`px-3 py-1 rounded-full transition-colors ${activeTab === 'post' ? 'bg-purple-500/20 text-purple-400' : !report.post_market_summary ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  Post-Market
+                </button>
+              </div>
+            )}
           </div>
 
-          {isEditingNote ? (
-            <div className="note-edit-form">
-              <div className="note-field">
-                <label>Pre-Market Prep</label>
-                <textarea
-                  value={preMarketPlan}
-                  onChange={(e) => setPreMarketPlan(e.target.value)}
-                  placeholder="What's your plan before the market opens?"
-                  rows={4}
-                />
+          <div className="note-display bg-gray-900/30 p-4 rounded-lg border border-gray-800 min-h-[200px]">
+            {loading ? (
+              <div className="flex items-center justify-center h-full text-gray-500 gap-2">
+                <div className="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin"></div>
+                Loading analysis...
               </div>
-              <div className="note-field">
-                <label>Post-Market Summary</label>
-                <textarea
-                  value={postDaySummary}
-                  onChange={(e) => setPostDaySummary(e.target.value)}
-                  placeholder="Reflect on your trading day..."
-                  rows={4}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="note-display">
-              {summary.note?.preMarketPlan && (
-                <div className="note-section">
-                  <h4>Pre-Market Prep</h4>
-                  <p>{summary.note.preMarketPlan}</p>
-                </div>
-              )}
-              {summary.note?.postDaySummary && (
-                <div className="note-section">
-                  <h4>Post-Market Summary</h4>
-                  <p>{summary.note.postDaySummary}</p>
-                </div>
-              )}
-              {!summary.note?.preMarketPlan &&
-                !summary.note?.postDaySummary && (
-                  <p className="no-notes">No notes for this day yet. Click "📔 Full Journal" to add detailed notes and view AI trade plans.</p>
+            ) : report ? (
+              <div className="animate-in fade-in duration-300">
+                {activeTab === 'pre' ? (
+                  <div className="space-y-6">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-blue-400">Bias</span>
+                        <span className="text-sm text-gray-300">{report.htf_bias} ({Math.round(report.confidence * 100)}%)</span>
+                      </div>
+                      <MarkdownRenderer content={report.narrative} />
+                    </div>
+
+                    {/* Scenarios Summary */}
+                    <div className="grid grid-cols-1 gap-4 mt-4">
+                      {report.long_scenario && (
+                        <div className="bg-gray-900/50 p-3 rounded border border-gray-800">
+                          <div className="text-xs font-bold text-green-500 uppercase mb-1">Long Idea</div>
+                          <div className="text-sm text-gray-400">
+                            Zone: {report.long_scenario.entry_zone.low} - {report.long_scenario.entry_zone.high}
+                          </div>
+                        </div>
+                      )}
+                      {report.short_scenario && (
+                        <div className="bg-gray-900/50 p-3 rounded border border-gray-800">
+                          <div className="text-xs font-bold text-red-500 uppercase mb-1">Short Idea</div>
+                          <div className="text-sm text-gray-400">
+                            Zone: {report.short_scenario.entry_zone.low} - {report.short_scenario.entry_zone.high}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-2">Daily Review</div>
+                    <MarkdownRenderer content={report.post_market_summary || "No post-market summary available."} />
+                  </div>
                 )}
-            </div>
-          )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-2">
+                <span>No AI analysis found for this date.</span>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="trade-list">
+        <div className="trade-list mt-8">
           <h3>Trades</h3>
           {summary.detail &&
             summary.detail.trades.map((trade) => (
               <TradeListItem key={trade.id} trade={trade} />
             ))}
+          {(!summary.detail || summary.detail.trades.length === 0) && (
+            <p className="text-gray-500 text-sm italic">No trades recorded.</p>
+          )}
         </div>
       </div>
-
-      {/* Professional Trading Journal Modal */}
-      {showJournal && (
-        <TradingJournal
-          dateISO={summary.dateISO}
-          initialNote={summary.note}
-          onClose={() => setShowJournal(false)}
-          onSave={(updatedNote) => {
-            onNoteUpdate(summary.dateISO, updatedNote);
-            setShowJournal(false);
-          }}
-        />
-      )}
     </div>
   );
 };
@@ -786,7 +771,6 @@ const TradingCalendar: React.FC<{ trades: Trade[] }> = ({ trades }) => {
         <DayDrawer
           summary={selectedDay}
           onClose={() => setSelectedDay(null)}
-          onNoteUpdate={handleNoteUpdate}
         />
       )}
     </div>

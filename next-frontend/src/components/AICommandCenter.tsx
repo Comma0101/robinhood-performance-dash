@@ -9,6 +9,8 @@ import {
   ModelStatus,
   NewsInsight,
 } from "@/types/ai";
+import NewsFeed from "./NewsFeed";
+import { getMorningReport, generateReport, type PreMarketReport } from "@/lib/api/reports";
 
 const biasToEmoji: Record<DirectionalBias, string> = {
   Bullish: "📈",
@@ -37,171 +39,103 @@ const pillarTone: Record<ChecklistItem["pillar"], "preparation" | "execution" | 
 const useMockSnapshot = (): CommandCenterSnapshot =>
   useMemo(() => {
     const now = new Date();
-    const nextEvent = new Date(now.getTime() + 45 * 60 * 1000);
-    const modelRefresh = new Date(now.getTime() - 15 * 60 * 1000);
-    const journalRefresh = new Date(now.getTime() - 45 * 60 * 1000);
-
     return {
       sessionDateISO: now.toISOString(),
       session: {
         phase: "Pre-Market",
-        focusTickers: ["ES", "NQ", "CL"],
+        focusTickers: ["NVDA"],
         nextEvent: {
-          label: "CPI Release",
-          timeISO: nextEvent.toISOString(),
+          label: "Market Open",
+          timeISO: new Date(now.setHours(9, 30, 0, 0)).toISOString(),
         },
       },
       directional: {
-        instrument: "ES (E-mini S&P 500)",
+        instrument: "QQQ",
         bias: "Bullish",
-        confidence: 0.68,
-        narrative:
-          "Liquidity hunt cleared the overnight low, triggering buy-side imbalance. Expect continuation toward weekly high if 5005 holds as support.",
-        keyLevels: [
-          {
-            label: "Liquidity Pool",
-            price: 4988.5,
-            type: "liquidity",
-          },
-          {
-            label: "NY Open FVG",
-            price: 5005.25,
-            type: "fvg",
-          },
-          {
-            label: "Weekly High",
-            price: 5023.75,
-            type: "liquidity",
-          },
-        ],
-        supportingSignals: [
-          "Sessions SMT divergence confirmed at 5:15 ET",
-          "Premium/discount array flipped bullish on 30m",
-          "Dollar index printing lower highs",
-        ],
+        confidence: 0.5,
+        narrative: "Loading market data...",
+        keyLevels: [],
+        supportingSignals: [],
         lastUpdatedISO: now.toISOString(),
       },
-      news: [
-        {
-          id: "news-1",
-          headline:
-            "Fed speakers hint at patient stance, citing improving inflation data",
-          summary:
-            "Comments from Fed officials suggest rate cuts remain on the table for Q3 if labor softens further. Treasuries rallied modestly, easing financial conditions.",
-          source: "Bloomberg",
-          impactScore: 0.74,
-          impactNarrative:
-            "Supports risk-on appetite; watch for confirmation during cash open.",
-          relatedTickers: ["ES", "NQ", "ZN"],
-          publishedAtISO: now.toISOString(),
-        },
-        {
-          id: "news-2",
-          headline:
-            "Apple supplier guidance downgraded, highlighting consumer demand risks",
-          summary:
-            "Key Asia-based supplier cut shipment outlook by ~4%, citing weaker smartphone demand. Tech futures dipped pre-market but recovered on liquidity sweep.",
-          source: "Reuters",
-          impactScore: 0.41,
-          impactNarrative:
-            "Keep an eye on NQ leadership; watch breadth for confirmation before leaning on tech strength.",
-          relatedTickers: ["AAPL", "NQ", "SMH"],
-          publishedAtISO: now.toISOString(),
-        },
-      ],
+      news: [],
       journal: {
-        summary:
-          "Yesterday's session delivered +$1,450 after scaling out on the lunchtime reversal. Biggest takeaway: adherence to time-based kill switch prevented overtrading into the close.",
-        highlights: [
-          {
-            id: "highlight-1",
-            dateISO: format(now, "yyyy-MM-dd"),
-            outcome: "Win",
-            pnl: 850,
-            takeaway:
-              "NY open FVG entry respected kill zone timing; partials managed per plan.",
-            recommendedAction:
-              "Repeat staggered take-profit ladder on similar setups.",
-          },
-          {
-            id: "highlight-2",
-            dateISO: format(now, "yyyy-MM-dd"),
-            outcome: "Loss",
-            pnl: -320,
-            takeaway:
-              "Over-anticipated liquidity grab during VWAP retest; stop placement too tight.",
-            recommendedAction:
-              "Require displacement candle close before engaging VWAP fades.",
-          },
-        ],
-        actionItems: [
-          "Pre-market: mark 5005.25 and 4988.5 on primary chart with alerts.",
-          "Journal prompt: note emotional state after first trade closes.",
-        ],
+        summary: "No journal data available.",
+        highlights: [],
+        actionItems: [],
       },
-      models: [
-        {
-          id: "directional-model",
-          name: "Directional Bias Engine",
-          version: "v2.1",
-          status: "Operational",
-          latencyMs: 82,
-          lastUpdatedISO: now.toISOString(),
-          notes: "Retrained on last quarter data; monitoring CPI sensitivity.",
-        },
-        {
-          id: "news-summarizer",
-          name: "Macro Relevance Model",
-          version: "v0.9",
-          status: "Operational",
-          latencyMs: 118,
-          lastUpdatedISO: modelRefresh.toISOString(),
-          notes: "Executes every 5 min during NY session.",
-        },
-        {
-          id: "journal-agent",
-          name: "Journal Insight Agent",
-          version: "v0.8-beta",
-          status: "Degraded",
-          latencyMs: 245,
-          lastUpdatedISO: journalRefresh.toISOString(),
-          notes: "Processing backlog from manual uploads.",
-        },
-      ],
-      checklist: [
-        {
-          id: "prep-key-levels",
-          label: "Mark key liquidity pools & FVGs",
-          description: "Focus on 4988.5 liquidity and 5005.25 NY FVG.",
-          completed: true,
-          pillar: "Preparation",
-        },
-        {
-          id: "execution-plan",
-          label: "Confirm execution bias with macro context",
-          description:
-            "Align CPI narrative with directional model before open.",
-          completed: false,
-          pillar: "Execution",
-        },
-        {
-          id: "journal-memo",
-          label: "Set journal prompts for emotional checkpoints",
-          description: "Capture feelings after first trade and lunch hour.",
-          completed: false,
-          pillar: "Review",
-        },
-      ],
+      models: [],
+      checklist: [],
     };
   }, []);
 
 const AICommandCenter: React.FC = () => {
   const snapshot = useMockSnapshot();
+  const [newsTickers, setNewsTickers] = React.useState("NVDA");
+  const [tempTickerInput, setTempTickerInput] = React.useState("NVDA");
+  const [report, setReport] = React.useState<PreMarketReport | null>(null);
+  const [loadingReport, setLoadingReport] = React.useState(true);
+  const [selectedDate, setSelectedDate] = React.useState(new Date());
+
+  React.useEffect(() => {
+    const fetchReport = async () => {
+      try {
+        const dateStr = selectedDate.toISOString().split('T')[0];
+        const data = await getMorningReport(dateStr, "QQQ");
+        setReport(data);
+      } catch (err) {
+        console.error("Failed to fetch report:", err);
+        setReport(null);
+      } finally {
+        setLoadingReport(false);
+      }
+    };
+    setLoadingReport(true);
+    fetchReport();
+  }, [selectedDate]);
+
+  const handleGenerateReport = async () => {
+    try {
+      setLoadingReport(true);
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      await generateReport("QQQ", dateStr);
+      // Wait a bit then refresh
+      setTimeout(async () => {
+        const data = await getMorningReport(dateStr, "QQQ");
+        setReport(data);
+        setLoadingReport(false);
+      }, 5000);
+    } catch (err) {
+      console.error("Failed to generate:", err);
+      setLoadingReport(false);
+    }
+  };
+
+  const handlePreviousDay = () => {
+    setSelectedDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setDate(newDate.getDate() - 1);
+      return newDate;
+    });
+  };
+
+  const handleNextDay = () => {
+    setSelectedDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setDate(newDate.getDate() + 1);
+      return newDate;
+    });
+  };
+
+  const handleToday = () => {
+    setSelectedDate(new Date());
+  };
+
+  const isToday = selectedDate.toISOString().split('T')[0] === new Date().toISOString().split('T')[0];
 
   const handleFeedback = useCallback(
     (context: { type: "directional" | "news" | "journal" | "models" | "checklist"; id?: string }) => {
       console.info("[AI Feedback stub]", context);
-      // TODO: Replace with feedback-service integration.
     },
     []
   );
@@ -260,61 +194,174 @@ const AICommandCenter: React.FC = () => {
 
       <section className="command-center-grid">
         <article className="cc-card cc-directional cc-span-2">
-          <div className="cc-card-header">
-            <span className="cc-card-title">Directional Outlook</span>
-            <div className="cc-card-meta">
-              <span className="cc-card-subtitle">{snapshot.directional.instrument}</span>
-              <span className={`cc-bias ${snapshot.directional.bias.toLowerCase()}`}>
-                {biasToEmoji[snapshot.directional.bias]}{" "}
-                {snapshot.directional.bias}
-              </span>
-            </div>
-          </div>
-
-          <div className="cc-confidence">
-            <div className="cc-confidence-bar">
-              <span
-                className="cc-confidence-fill"
-                style={{ width: `${Math.round(snapshot.directional.confidence * 100)}%` }}
-              />
-            </div>
-            <span className="cc-confidence-label">
-              Confidence {Math.round(snapshot.directional.confidence * 100)}%
-            </span>
-          </div>
-
-          <p className="cc-narrative">{snapshot.directional.narrative}</p>
-
-          <div className="cc-key-levels">
-            {snapshot.directional.keyLevels.map((level) => (
-              <div key={level.label} className="cc-key-level">
-                <div className="cc-key-meta">
-                  <span className={`cc-level-type type-${level.type}`}>
-                    {level.label}
-                  </span>
-                  <span className="cc-level-price">{level.price.toFixed(2)}</span>
+          <div className="cc-card-header flex items-center justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-1">
+                <span className="text-2xl">
+                  {biasToEmoji[report?.htf_bias as keyof typeof biasToEmoji] || "📊"}
+                </span>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-100">Pre-Market Report</h2>
+                  <p className="text-sm text-gray-400">
+                    {report?.symbol || "QQQ"} • {report?.htf_bias || "Loading..."} Bias
+                  </p>
                 </div>
               </div>
-            ))}
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handlePreviousDay}
+                className="p-2 bg-gray-700/50 hover:bg-gray-600 rounded transition-colors"
+                title="Previous Day"
+              >
+                <span className="text-lg">◀</span>
+              </button>
+              <div className="px-4 py-2 bg-gray-800/50 rounded">
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Date</div>
+                <div className="text-sm font-mono font-medium text-gray-200">
+                  {format(selectedDate, "MMM d, yyyy")}
+                </div>
+              </div>
+              <button
+                onClick={handleNextDay}
+                disabled={isToday}
+                className="p-2 bg-gray-700/50 hover:bg-gray-600 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Next Day"
+              >
+                <span className="text-lg">▶</span>
+              </button>
+              {!isToday && (
+                <button
+                  onClick={handleToday}
+                  className="px-3 py-2 bg-blue-600/80 hover:bg-blue-500 rounded text-sm font-medium transition-colors"
+                >
+                  Today
+                </button>
+              )}
+            </div>
           </div>
 
-          <ul className="cc-supporting-signals">
-            {snapshot.directional.supportingSignals.map((signal) => (
-              <li key={signal}>{signal}</li>
-            ))}
-          </ul>
+          <div className="px-8 py-6">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="flex-1">
+                <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all"
+                    style={{ width: `${Math.round((report?.confidence || 0.5) * 100)}%` }}
+                  />
+                </div>
+              </div>
+              <span className="text-base font-semibold text-gray-300 min-w-[100px] text-right">
+                {Math.round((report?.confidence || 0.5) * 100)}% Confidence
+              </span>
+            </div>
 
-          <footer className="cc-card-footer">
-            <span>
-              Updated{" "}
-              {format(new Date(snapshot.directional.lastUpdatedISO), "p")}
+            {report ? (
+              <div className="space-y-8">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Morning Briefing</h3>
+                  <div className="prose prose-invert prose-base max-w-none">
+                    <p className="text-gray-300 text-base leading-loose whitespace-pre-wrap">
+                      {report.narrative}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                  {report.long_scenario && (
+                    <div className="bg-gradient-to-br from-green-900/20 to-green-800/10 border-2 border-green-700/40 rounded-xl p-6">
+                      <div className="flex items-center justify-between mb-5">
+                        <h4 className="text-green-400 font-bold text-base flex items-center gap-2">
+                          <span className="text-lg">📈</span> Long Setup
+                        </h4>
+                        <span className="text-xs text-green-500/80 bg-green-900/40 px-3 py-1.5 rounded-full font-medium">
+                          {report.long_scenario.entry_type}
+                        </span>
+                      </div>
+                      <div className="space-y-4">
+                        <div>
+                          <div className="text-gray-500 text-xs uppercase tracking-wide mb-2">Entry Zone</div>
+                          <div className="font-mono text-gray-100 font-semibold text-lg">
+                            {report.long_scenario.entry_zone.low.toFixed(2)} - {report.long_scenario.entry_zone.high.toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 pt-2">
+                          <div>
+                            <div className="text-gray-500 text-xs uppercase tracking-wide mb-2">Stop Loss</div>
+                            <div className="font-mono text-red-400 font-semibold text-base">
+                              {report.long_scenario.stop_loss.toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-gray-500 text-xs uppercase tracking-wide mb-2">Targets</div>
+                            <div className="font-mono text-green-400 font-semibold text-sm leading-relaxed">
+                              {report.long_scenario.targets.map(t => t.toFixed(2)).join(', ')}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {report.short_scenario && (
+                    <div className="bg-gradient-to-br from-red-900/20 to-red-800/10 border-2 border-red-700/40 rounded-xl p-6">
+                      <div className="flex items-center justify-between mb-5">
+                        <h4 className="text-red-400 font-bold text-base flex items-center gap-2">
+                          <span className="text-lg">📉</span> Short Setup
+                        </h4>
+                        <span className="text-xs text-red-500/80 bg-red-900/40 px-3 py-1.5 rounded-full font-medium">
+                          {report.short_scenario.entry_type}
+                        </span>
+                      </div>
+                      <div className="space-y-4">
+                        <div>
+                          <div className="text-gray-500 text-xs uppercase tracking-wide mb-2">Entry Zone</div>
+                          <div className="font-mono text-gray-100 font-semibold text-lg">
+                            {report.short_scenario.entry_zone.low.toFixed(2)} - {report.short_scenario.entry_zone.high.toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 pt-2">
+                          <div>
+                            <div className="text-gray-500 text-xs uppercase tracking-wide mb-2">Stop Loss</div>
+                            <div className="font-mono text-red-400 font-semibold text-base">
+                              {report.short_scenario.stop_loss.toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-gray-500 text-xs uppercase tracking-wide mb-2">Targets</div>
+                            <div className="font-mono text-green-400 font-semibold text-sm leading-relaxed">
+                              {report.short_scenario.targets.map(t => t.toFixed(2)).join(', ')}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : loadingReport ? (
+              <div className="text-center py-16">
+                <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500 mb-4"></div>
+                <p className="text-gray-400 text-base">Loading report...</p>
+              </div>
+            ) : (
+              <div className="text-center py-16">
+                <p className="text-gray-400 mb-5 text-base">No pre-market report found for {format(selectedDate, "MMM d, yyyy")}.</p>
+                <button
+                  onClick={handleGenerateReport}
+                  disabled={loadingReport}
+                  className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg text-base font-medium disabled:opacity-50 transition-colors"
+                >
+                  {loadingReport ? "Generating..." : "Generate Report"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <footer className="px-8 py-4 border-t border-gray-700/50">
+            <span className="text-sm text-gray-500">
+              {report ? `Generated ${format(new Date(report.created_at), "PPp")}` : "No data"}
             </span>
-            <button
-              className="cc-feedback-btn"
-              onClick={() => handleFeedback({ type: "directional" })}
-            >
-              Needs adjustment?
-            </button>
           </footer>
         </article>
 
@@ -326,35 +373,35 @@ const AICommandCenter: React.FC = () => {
             </span>
           </div>
 
-          <div className="cc-news-list">
-            {snapshot.news.map((item) => (
-              <div key={item.id} className="cc-news-item">
-                <div className="cc-news-meta">
-                  <span className="cc-impact">{formatImpact(item)}</span>
-                  <span className="cc-time">
-                    {format(new Date(item.publishedAtISO), "p")}
-                  </span>
-                </div>
-                <h3>{item.headline}</h3>
-                <p>{item.summary}</p>
-                <p className="cc-impact-narrative">{item.impactNarrative}</p>
-                <div className="cc-news-tags">
-                  {item.relatedTickers.map((ticker) => (
-                    <span key={ticker} className="cc-tag">
-                      {ticker}
-                    </span>
-                  ))}
-                </div>
-                <button
-                  className="cc-feedback-inline"
-                  onClick={() =>
-                    handleFeedback({ type: "news", id: item.id })
-                  }
-                >
-                  Mark as helpful
-                </button>
+          <div className="px-6 pb-4">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setNewsTickers(tempTickerInput);
+              }}
+              className="relative group"
+            >
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <span className="text-gray-500 group-focus-within:text-blue-400 transition-colors">🔍</span>
               </div>
-            ))}
+              <input
+                type="text"
+                value={tempTickerInput}
+                onChange={(e) => setTempTickerInput(e.target.value)}
+                placeholder="Search tickers (e.g. NVDA, TSLA)..."
+                className="w-full bg-gray-900/50 border-b-2 border-gray-700 text-gray-200 pl-10 pr-20 py-3 text-sm focus:border-blue-500 focus:bg-gray-900/80 outline-none transition-all placeholder-gray-600"
+              />
+              <button
+                type="submit"
+                className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 hover:text-blue-300 text-xs font-medium rounded-full transition-all opacity-0 group-focus-within:opacity-100"
+              >
+                Update
+              </button>
+            </form>
+          </div>
+
+          <div className="cc-news-list">
+            <NewsFeed tickers={newsTickers} limit={15} />
           </div>
         </article>
 
@@ -374,8 +421,8 @@ const AICommandCenter: React.FC = () => {
                   {highlight.outcome === "Win"
                     ? "✅"
                     : highlight.outcome === "Loss"
-                    ? "⚠️"
-                    : "ℹ️"}
+                      ? "⚠️"
+                      : "ℹ️"}
                   <span>{highlight.outcome}</span>
                 </div>
                 <span className="cc-highlight-pnl">

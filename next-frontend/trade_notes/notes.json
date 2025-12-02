@@ -98,5 +98,216 @@
       }
     ],
     "lastUpdated": "2025-11-10T21:11:20.434Z"
+  },
+  "2025-11-11": {
+    "dateISO": "2025-11-11",
+    "aiPlans": [
+      {
+        "symbol": "QQQ",
+        "timeframe": "5min",
+        "horizon": "today's session",
+        "strategy": "Short Continuation",
+        "entry": "Sell limit at 620.0",
+        "stop": "Above 621.57",
+        "targets": [
+          619,
+          618,
+          616.5
+        ],
+        "confluence": [
+          "5min bearish bias confirmed",
+          "Supply zone at 620.59 - 621.57 mitigated",
+          "Bearish BOS on 5min and 15min"
+        ],
+        "risk": "Moderate",
+        "createdAt": "2025-11-11T16:25:43.711Z",
+        "source": "agent"
+      },
+      {
+        "symbol": "AAPL",
+        "timeframe": "5min",
+        "horizon": "today's session",
+        "strategy": "Short Continuation",
+        "entry": "Sell limit at 620.0",
+        "stop": "Above 621.57",
+        "targets": [
+          619,
+          618,
+          616.5
+        ],
+        "confluence": [
+          "5min bearish bias confirmed",
+          "Supply zone at 620.59 - 621.57 mitigated",
+          "Bearish BOS on 5min and 15min"
+        ],
+        "risk": "Moderate",
+        "createdAt": "2025-11-11T22:44:48.112Z",
+        "source": "agent"
+      },
+      {
+        "symbol": "AAPL",
+        "timeframe": "5min",
+        "horizon": "today's session",
+        "strategy": "Short Continuation",
+        "entry": "Sell limit at 620.0",
+        "stop": "Above 621.57",
+        "targets": [
+          617.69,
+          616,
+          614.5
+        ],
+        "confluence": [
+          "Bearish bias across MTFs",
+          "Supply zone mitigated at 620.59 - 621.57",
+          "Dealing range biases at discount"
+        ],
+        "risk": "Moderate",
+        "createdAt": "2025-11-12T01:51:50.085Z",
+        "source": "agent"
+      }
+    ],
+    "lastUpdated": "2025-11-12T01:51:50.091Z"
+  },
+  "2025-11-12": {
+    "dateISO": "2025-11-12",
+    "aiPlans": [
+      {
+        "symbol": "QQQ",
+        "timeframe": "5min",
+        "horizon": "session (≈6 hours)",
+        "strategy": "bearish",
+        "entry": "Consider entering short positions at the 5min order block around 624.5-624.91, targeting the bearing alignment of the market structure shift along with multi-timeframe confluence.",
+        "stop": "Place stops slightly above the invalidated supply order block around 624.91, ensuring a risk contained exit point in case of a bullish shift.",
+        "targets": [
+          "Target 1: 621.57 (nearest external low)",
+          "Target 2: 621.104 (further external low)"
+        ],
+        "confluence": [
+          "4H bearish bias",
+          "Dealing range in premium (55.7% in favor of bears)",
+          "Daily upside liquidity draw providing added resistance",
+          "1min market structure shift confirmed in bearish direction"
+        ],
+        "risk": "High",
+        "createdAt": "2025-11-12T14:51:21.477Z",
+        "source": "agent"
+      },
+      {
+        "symbol": "AAPL",
+        "timeframe": "1min",
+        "horizon": "scalp (≈1 hour)",
+        "strategy": "bearish continuation",
+        "entry": {
+          "level": 620.25,
+          "criterion": "below invalidated supply from BOS at 620.25"
+        },
+        "stop": {
+          "level": 620.66,
+          "criterion": "above mitigated supply zone"
+        },
+        "targets": [
+          619.6,
+          619.05
+        ],
+        "confluence": [
+          "1min bearish structure",
+          "5m and 4H bearish bias",
+          "mitigated supply zone at 620.66",
+          "NY AM Kill Zone active"
+        ],
+        "risk": "medium",
+        "createdAt": "2025-11-12T15:54:41.857Z",
+        "source": "agent"
+      },
+      {
+        "symbol": "AMD",
+        "timeframe": "5min",
+        "horizon": "session (≈6 hours)",
+        "strategy": "Bullish continuation",
+        "entry": "Around 258.13 if retested",
+        "stop": "Below 254.05",
+        "targets": [
+          260.75,
+          264
+        ],
+        "confluence": [
+          "Bullish BOS on Daily",
+          "Bullish BOS on 4H",
+          "Order block alignment on 15m"
+        ],
+        "risk": "Moderate, trade inside NY AM kill zone",
+        "createdAt": "2025-11-12T16:06:58.172Z",
+        "source": "agent"
+      },
+      {
+        "symbol": "QQQ",
+        "timeframe": "5min",
+        "horizon": "session (≈6 hours)",
+        "strategy": "Intraday Short",
+        "entry": 618.31,
+        "stop": 621,
+        "targets": [
+          616,
+          614,
+          612
+        ],
+        "confluence": [
+          "Displaced BOS on 5min",
+          "Bearish bias on 5min",
+          "Bearish FVG unfilled"
+        ],
+        "risk": "medium",
+        "createdAt": "2025-11-12T16:14:58.901Z",
+        "source": "agent"
+      },
+      {
+        "symbol": "NEM",
+        "timeframe": "15min",
+        "horizon": "intraday (≈3 days)",
+        "strategy": "bullish continuation",
+        "entry": "Look for long opportunities on pullbacks into 15m fair value gaps or order blocks between 92.5 to 93.0 for favorable entries.",
+        "stop": "Below 91.75, allowing room below recent higher time frame swings.",
+        "targets": [
+          "Target 1: 94.50 (Test of liquidity above recent highs)",
+          "Target 2: 96.00 (Closure of bullish imbalance)",
+          "Target 3: 98.00 (Confluence with external liquidity on 4H/Daily draw)"
+        ],
+        "confluence": [
+          "15min bullish bias with valid BOS and displacement",
+          "Alignment with Daily and 4h bullish bias",
+          "NY PM Kill Zone active for potential volume influx"
+        ],
+        "risk": "Use session volume and ATR for stop placement sizing. Ensure risk remains within tolerable levels given potential volatility.",
+        "createdAt": "2025-11-12T19:17:04.886Z",
+        "source": "agent"
+      }
+    ],
+    "lastUpdated": "2025-11-12T19:17:04.893Z"
+  },
+  "2025-11-13": {
+    "dateISO": "2025-11-13",
+    "aiPlans": [
+      {
+        "symbol": "QQQ",
+        "timeframe": "1min",
+        "horizon": "scalp (≈1 hour)",
+        "strategy": "short",
+        "entry": "around 616.07",
+        "stop": "above 617.53",
+        "targets": [
+          "613.00",
+          "612.00"
+        ],
+        "confluence": [
+          "bearish 15m, 5m, and 1min structure alignment",
+          "supply zone around 616.91-617.53 mitigated",
+          "unfilled bearish FVG"
+        ],
+        "risk": "medium",
+        "createdAt": "2025-11-13T15:51:10.723Z",
+        "source": "agent"
+      }
+    ],
+    "lastUpdated": "2025-11-13T15:51:10.731Z"
   }
 }

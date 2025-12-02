@@ -1,5 +1,5 @@
 import { Metadata } from "next";
-import AICommandCenter from "@/components/AICommandCenter";
+import AICommandCenterMinimal from "@/components/AICommandCenterMinimal";
 
 export const metadata: Metadata = {
   title: "AI Command Center • Trading Dashboard",
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function CommandCenterPage() {
-  return <AICommandCenter />;
+  return <AICommandCenterMinimal />;
 }

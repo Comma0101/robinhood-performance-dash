@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 /* ============================================
    DESIGN SYSTEM - Trading Dashboard
@@ -23,7 +24,8 @@
   /* Text Hierarchy */
   --text-primary: #f5f5f5;
   --text-secondary: #a0a0a0;
-  --text-tertiary: #7a7a7a; /* Improved contrast */
+  --text-tertiary: #7a7a7a;
+  /* Improved contrast */
   --text-inverted: #0a0a0a;
 
   /* Semantic Colors - Success/Profit */
@@ -731,7 +733,8 @@ body {
 
 .stat-value {
   font-size: 1.875rem;
-  font-weight: 700; /* Increased from 600 for better prominence */
+  font-weight: 700;
+  /* Increased from 600 for better prominence */
   letter-spacing: -0.02em;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
@@ -1034,6 +1037,7 @@ tbody tr:active {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -1044,6 +1048,7 @@ tbody tr:active {
     opacity: 0;
     transform: scale(0.95);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
@@ -1091,7 +1096,7 @@ tbody tr:active {
   margin-top: 1.5rem;
 }
 
-.trade-details-grid > div {
+.trade-details-grid>div {
   background-color: var(--bg-elevated);
   padding: 1rem;
   border-radius: 0.5rem;
@@ -1243,11 +1248,9 @@ tbody tr:active {
 
 .day-cell.today .day-cell-content {
   border-color: var(--primary);
-  background: linear-gradient(
-    180deg,
-    rgba(59, 130, 246, 0.14) 0%,
-    var(--bg-elevated) 65%
-  );
+  background: linear-gradient(180deg,
+      rgba(59, 130, 246, 0.14) 0%,
+      var(--bg-elevated) 65%);
 }
 
 .day-cell.focused {
@@ -1327,15 +1330,19 @@ tbody tr:active {
 .netR-pos-700 {
   background-color: var(--cal-positive-700);
 }
+
 .netR-pos-500 {
   background-color: var(--cal-positive-500);
 }
+
 .netR-neutral-500 {
   background-color: var(--cal-neutral-500);
 }
+
 .netR-neg-500 {
   background-color: var(--cal-negative-500);
 }
+
 .netR-neg-700 {
   background-color: var(--cal-negative-700);
 }
@@ -1376,6 +1383,7 @@ tbody tr:active {
     transform: translateX(100%);
     opacity: 0;
   }
+
   to {
     transform: translateX(0);
     opacity: 1;
@@ -1402,6 +1410,7 @@ tbody tr:active {
       transform: translateY(100%);
       opacity: 0;
     }
+
     to {
       transform: translateY(0);
       opacity: 1;
@@ -1698,6 +1707,7 @@ tbody tr:active {
     opacity: 0;
     transform: translateY(-8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -1796,11 +1806,9 @@ tbody tr:active {
    ============================================ */
 .stat-card.hero {
   grid-column: 1 / -1;
-  background: linear-gradient(
-    135deg,
-    var(--bg-surface) 0%,
-    var(--bg-elevated) 100%
-  );
+  background: linear-gradient(135deg,
+      var(--bg-surface) 0%,
+      var(--bg-elevated) 100%);
   border: 1px solid var(--border-strong);
   padding: 2.5rem;
   position: relative;
@@ -1814,12 +1822,10 @@ tbody tr:active {
   left: 0;
   right: 0;
   height: 4px;
-  background: linear-gradient(
-    90deg,
-    var(--success) 0%,
-    var(--primary) 50%,
-    var(--primary-text) 100%
-  );
+  background: linear-gradient(90deg,
+      var(--success) 0%,
+      var(--primary) 50%,
+      var(--primary-text) 100%);
   opacity: 1;
 }
 
@@ -1877,12 +1883,10 @@ tbody tr:active {
    UTILITY CLASSES
    ============================================ */
 .loading-skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--bg-surface) 0%,
-    var(--bg-elevated) 50%,
-    var(--bg-surface) 100%
-  );
+  background: linear-gradient(90deg,
+      var(--bg-surface) 0%,
+      var(--bg-elevated) 50%,
+      var(--bg-surface) 100%);
   background-size: 200% 100%;
   animation: shimmer 2s linear infinite;
   border-radius: 0.5rem;
@@ -1892,6 +1896,7 @@ tbody tr:active {
   0% {
     background-position: -200% 0;
   }
+
   100% {
     background-position: 200% 0;
   }
@@ -1903,6 +1908,7 @@ tbody tr:active {
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -1919,6 +1925,7 @@ tbody tr:active {
     opacity: 0;
     transform: scale(0.95);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
@@ -1991,6 +1998,7 @@ tbody tr:active {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -2005,30 +2013,39 @@ tbody tr:active {
 .stagger-item:nth-child(1) {
   animation-delay: 0.05s;
 }
+
 .stagger-item:nth-child(2) {
   animation-delay: 0.1s;
 }
+
 .stagger-item:nth-child(3) {
   animation-delay: 0.15s;
 }
+
 .stagger-item:nth-child(4) {
   animation-delay: 0.2s;
 }
+
 .stagger-item:nth-child(5) {
   animation-delay: 0.25s;
 }
+
 .stagger-item:nth-child(6) {
   animation-delay: 0.3s;
 }
+
 .stagger-item:nth-child(7) {
   animation-delay: 0.35s;
 }
+
 .stagger-item:nth-child(8) {
   animation-delay: 0.4s;
 }
+
 .stagger-item:nth-child(9) {
   animation-delay: 0.45s;
 }
+
 .stagger-item:nth-child(10) {
   animation-delay: 0.5s;
 }
@@ -2039,6 +2056,7 @@ tbody tr:active {
     opacity: 0;
     transform: translateX(100%);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -3105,10 +3123,13 @@ tbody tr:active {
 }
 
 @keyframes pulse-glow {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
+
   50% {
     opacity: 0.95;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
@@ -3116,6 +3137,7 @@ tbody tr:active {
 }
 
 @media (max-width: 768px) {
+
   .landing-hero .cta-primary,
   .landing-hero .cta-secondary {
     font-size: 16px !important;
@@ -3155,11 +3177,9 @@ tbody tr:active {
   padding: 1.75rem 2rem;
   border-radius: 1.25rem;
   border: 1px solid var(--border-subtle);
-  background: linear-gradient(
-    145deg,
-    rgba(59, 130, 246, 0.1),
-    rgba(59, 130, 246, 0.02)
-  );
+  background: linear-gradient(145deg,
+      rgba(59, 130, 246, 0.1),
+      rgba(59, 130, 246, 0.02));
   position: relative;
   overflow: hidden;
 }
@@ -3168,11 +3188,9 @@ tbody tr:active {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(
-    circle at top right,
-    rgba(96, 165, 250, 0.25),
-    transparent 55%
-  );
+  background: radial-gradient(circle at top right,
+      rgba(96, 165, 250, 0.25),
+      transparent 55%);
   pointer-events: none;
 }
 

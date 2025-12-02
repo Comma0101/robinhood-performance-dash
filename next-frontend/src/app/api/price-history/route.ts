@@ -56,15 +56,24 @@ export async function GET(request: Request) {
         const res = await fetch(url, { signal: controller.signal });
         clearTimeout(timeout);
         if (res.ok) return res;
+
+        // Log error response body for debugging
+        let errorBody = "";
+        try {
+          errorBody = await res.text();
+          console.error(`Alpha Vantage error (${res.status}):`, errorBody.substring(0, 500));
+        } catch {}
+
         // Retry on transient errors
         if ([429, 500, 502, 503, 504].includes(res.status)) {
           const backoff = Math.min(2000 * (i + 1), 5000) + Math.random() * 250;
+          console.log(`Alpha Vantage ${res.status} error, retry ${i + 1}/${attempts} after ${Math.floor(backoff)}ms`);
           await new Promise((r) => setTimeout(r, backoff));
-          lastError = new Error(`Alpha Vantage transient status: ${res.status}`);
+          lastError = new Error(`Alpha Vantage transient status: ${res.status} ${errorBody ? '- ' + errorBody.substring(0, 100) : ''}`);
           continue;
         }
         // Non-retryable
-        throw new Error(`Alpha Vantage API request failed: ${res.status}`);
+        throw new Error(`Alpha Vantage API request failed: ${res.status} ${errorBody ? '- ' + errorBody.substring(0, 100) : ''}`);
       } catch (err: any) {
         clearTimeout(timeout);
         if (err?.name === "AbortError") {
@@ -123,10 +132,11 @@ export async function GET(request: Request) {
     try {
       response = await fetchWithRetry(url, 3, 10000);
     } catch (apiErr: any) {
-      // On failure, attempt to serve cached data if present
+      console.log(`Alpha Vantage API failed for ${cacheKey}, attempting cache fallback...`);
+
+      // Try to serve cached data for the requested interval (up to 24h old)
       const cached = cache.get(cacheKey);
-      if (cached && Date.now() - cached.ts < 6 * 60 * 60 * 1000 /* 6h max age */) {
-        // Slice cached bars to requested window
+      if (cached && Date.now() - cached.ts < 24 * 60 * 60 * 1000) {
         const bars = cached.bars
           .filter((b) => {
             const t = toTimeZoneDate(b.time).getTime();
@@ -134,11 +144,54 @@ export async function GET(request: Request) {
           })
           .sort((a, b) => toTimeZoneDate(a.time).getTime() - toTimeZoneDate(b.time).getTime());
         if (bars.length > 0) {
+          console.log(`Serving stale cache for ${cacheKey} (${Math.floor((Date.now() - cached.ts) / 60000)} mins old)`);
           return NextResponse.json({ symbol, interval: cached.interval, bars, stale: true });
         }
       }
-      // Propagate the original error if no cache is usable
-      throw apiErr;
+
+      // Try fallback intervals if requesting intraday data
+      const fallbackIntervals = ["5min", "15min", "30min", "60min"];
+      if (effectiveInterval !== "daily" && !fallbackIntervals.includes(effectiveInterval)) {
+        fallbackIntervals.unshift(effectiveInterval);
+      }
+
+      for (const fallbackInterval of fallbackIntervals) {
+        if (fallbackInterval === effectiveInterval) continue;
+        const fallbackKey = `${symbol}:${fallbackInterval}`;
+        const fallbackCached = cache.get(fallbackKey);
+        if (fallbackCached && Date.now() - fallbackCached.ts < 24 * 60 * 60 * 1000) {
+          const bars = fallbackCached.bars
+            .filter((b) => {
+              const t = toTimeZoneDate(b.time).getTime();
+              return t >= new Date(startDate).getTime() && t < new Date(endDate).getTime();
+            })
+            .sort((a, b) => toTimeZoneDate(a.time).getTime() - toTimeZoneDate(b.time).getTime());
+          if (bars.length > 0) {
+            console.log(`Serving fallback cache ${fallbackKey} instead of ${cacheKey}`);
+            return NextResponse.json({ symbol, interval: fallbackCached.interval, bars, stale: true, fallback: true });
+          }
+        }
+      }
+
+      // Last resort: try fetching a lower-resolution interval from the API
+      if (effectiveInterval === "1min") {
+        console.log(`Attempting live fallback to 5min interval...`);
+        try {
+          const fallbackUrl = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=5min&entitlement=realtime&apikey=${apiKey}&outputsize=full`;
+          response = await fetchWithRetry(fallbackUrl, 2, 10000);
+          effectiveInterval = "5min";
+          timeKey = "Time Series (5min)";
+          console.log(`Successfully fetched 5min fallback data for ${symbol}`);
+        } catch (fallbackErr) {
+          console.error(`Fallback to 5min also failed:`, fallbackErr);
+        }
+      }
+
+      // If still no response, propagate original error
+      if (!response) {
+        console.error(`No usable cache or fallback found for ${cacheKey}, propagating error`);
+        throw apiErr;
+      }
     }
 
     const data = await response.json();
@@ -283,6 +336,17 @@ export async function GET(request: Request) {
     const message = error instanceof Error ? error.message : "Failed to fetch price history";
     const isRateOrService = /rate limit|timeout|transient status|503|502|504/i.test(message);
     const status = isRateOrService ? 503 : 500;
-    return NextResponse.json({ error: message }, { status });
+
+    // Enhanced error message for the frontend
+    let enhancedMessage = message;
+    if (isRateOrService) {
+      enhancedMessage = `Alpha Vantage API is temporarily unavailable (${message}). Data may be outdated or unavailable. Please try again in a few moments.`;
+    }
+
+    return NextResponse.json({
+      error: enhancedMessage,
+      details: message,
+      retryable: isRateOrService
+    }, { status });
   }
 }

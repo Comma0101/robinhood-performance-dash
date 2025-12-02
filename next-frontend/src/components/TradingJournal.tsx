@@ -24,11 +24,11 @@ interface AITradePlan {
   timeframe: string;
   horizon?: string;
   strategy?: string;
-  entry?: string;
-  stop?: string;
-  targets?: Array<number | string>;
-  confluence?: string[];
-  risk?: string;
+  entry?: string | { level?: string; criterion?: string } | Record<string, any>;
+  stop?: string | { level?: string; criterion?: string } | Record<string, any>;
+  targets?: Array<number | string | { level?: string; criterion?: string } | Record<string, any>>;
+  confluence?: Array<string | { level?: string; criterion?: string } | Record<string, any>>;
+  risk?: string | { level?: string; criterion?: string } | Record<string, any>;
   createdAt: string;
   source?: "agent" | "manual";
 }
@@ -295,21 +295,33 @@ const TradingJournal: React.FC<TradingJournalProps> = ({
                           {plan.entry && (
                             <div className="plan-row compact">
                               <span className="plan-label">Entry</span>
-                              <span className="plan-value entry">{plan.entry}</span>
+                              <span className="plan-value entry">
+                                {typeof plan.entry === 'object' && plan.entry !== null
+                                  ? JSON.stringify(plan.entry)
+                                  : plan.entry}
+                              </span>
                             </div>
                           )}
 
                           {plan.stop && (
                             <div className="plan-row compact">
                               <span className="plan-label">Stop</span>
-                              <span className="plan-value stop">{plan.stop}</span>
+                              <span className="plan-value stop">
+                                {typeof plan.stop === 'object' && plan.stop !== null
+                                  ? JSON.stringify(plan.stop)
+                                  : plan.stop}
+                              </span>
                             </div>
                           )}
 
                           {plan.risk && (
                             <div className="plan-row compact">
                               <span className="plan-label">Risk</span>
-                              <span className="plan-value">{plan.risk}</span>
+                              <span className="plan-value">
+                                {typeof plan.risk === 'object' && plan.risk !== null
+                                  ? JSON.stringify(plan.risk)
+                                  : plan.risk}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -318,11 +330,19 @@ const TradingJournal: React.FC<TradingJournalProps> = ({
                           <div className="plan-row">
                             <span className="plan-label">Targets</span>
                             <div className="plan-targets">
-                              {plan.targets.map((target, i) => (
-                                <span key={i} className="target-chip">
-                                  T{i + 1}: {target}
-                                </span>
-                              ))}
+                              {plan.targets.map((target, i) => {
+                                const displayText = typeof target === 'string' || typeof target === 'number'
+                                  ? String(target)
+                                  : typeof target === 'object' && target !== null && 'level' in target && 'criterion' in target
+                                  ? `${target.level}: ${target.criterion}`
+                                  : JSON.stringify(target);
+
+                                return (
+                                  <span key={i} className="target-chip">
+                                    T{i + 1}: {displayText}
+                                  </span>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -331,11 +351,19 @@ const TradingJournal: React.FC<TradingJournalProps> = ({
                           <div className="plan-row">
                             <span className="plan-label">Confluence</span>
                             <div className="plan-confluence">
-                              {plan.confluence.map((conf, i) => (
-                                <span key={i} className="confluence-chip">
-                                  {conf}
-                                </span>
-                              ))}
+                              {plan.confluence.map((conf, i) => {
+                                const displayText = typeof conf === 'string'
+                                  ? conf
+                                  : typeof conf === 'object' && conf !== null && 'level' in conf && 'criterion' in conf
+                                  ? `${conf.level}: ${conf.criterion}`
+                                  : JSON.stringify(conf);
+
+                                return (
+                                  <span key={i} className="confluence-chip">
+                                    {displayText}
+                                  </span>
+                                );
+                              })}
                             </div>
                           </div>
                         )}

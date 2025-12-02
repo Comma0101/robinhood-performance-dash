@@ -1,0 +1,10 @@
+# Optional ML/RAG dependencies
+# Install these AFTER core backend is working
+# Warning: torch is ~900MB and takes 15-20 minutes to install
+
+# Vector Store (for RAG feature)
+chromadb==0.4.24
+sentence-transformers==2.5.1
+
+# LangChain Community (includes RAG tools)
+langchain-community==0.0.38

@@ -192,15 +192,34 @@ const buildSystemMessage = ({
     "Session hygiene: use sessions.killZones from ict_analyze; if no kill zone is active, flag reduced setup quality unless the user explicitly overrides."
   );
 
+  instructions.push(
+    "Response Format Rules:",
+    "If you decide to provide a specific trading plan (with entry, stop, and targets), you MUST use the following JSON format in a code block, followed by your rationale.",
+    "CRITICAL: The JSON object must be valid and strictly follow this structure:",
+    "```json",
+    "{",
+    `  "timeframe": "${intervalLabel}",`,
+    `  "horizon": "brief description of ${horizonLabel}",`,
+    '  "strategy": "Name of strategy (e.g. ICT Silver Bullet, Reversal)",',
+    '  "entry": "Specific entry price or condition",',
+    '  "stop": "Stop loss price or condition",',
+    '  "targets": ["Target 1 price", "Target 2 price"],',
+    '  "confluence": ["List of 2-3 key confluence factors"],',
+    '  "risk": "Risk/Reward ratio or sizing note"',
+    "}",
+    "```"
+  );
+
   if (mode === "plan") {
     instructions.push(
-      "After receiving tool data, respond with:",
-      `1) A machine-readable plan JSON with keys: timeframe (must equal "${intervalLabel}"), horizon (describe ${horizonLabel}), strategy, entry, stop, targets (array), confluence (array), risk (string).`,
-      "2) A concise rationale referencing BOS/ChoCH alignment, order blocks, dealing range premium/discount, liquidity, and session context while reaffirming the active timeframe."
+      "You are in PLAN mode. You MUST output the JSON plan defined above.",
+      "After the JSON block, provide a concise rationale referencing BOS/ChoCH alignment, order blocks, dealing range premium/discount, liquidity, and session context."
     );
   } else {
     instructions.push(
-      "Respond conversationally and do NOT emit plan JSON unless the user explicitly requests a trade plan.",
+      "You are in CHAT mode. Respond conversationally.",
+      "If the user explicitly asks for a trade plan OR if you identify a high-probability setup that warrants a full plan, use the JSON format defined above.",
+      "Otherwise, just discuss the market structure, liquidity, and bias in plain text.",
       "Reference BOS/ChoCH, order blocks, dealing range, liquidity, and sessions as supportive context while keeping the tone collaborative.",
       "Always cite the latest closed bar's timestamp plus OHLC and volume from the tool payload to ground your commentary."
     );
@@ -462,7 +481,7 @@ export async function POST(request: Request) {
             .from("conversations")
             .update({ updated_at: new Date().toISOString() })
             .eq("id", conversationId);
-        } catch {}
+        } catch { }
       }
 
       return NextResponse.json({
@@ -511,20 +530,20 @@ export async function POST(request: Request) {
       interval === "1min"
         ? 60
         : interval === "5min"
-        ? 72
-        : interval === "15min"
-        ? 288
-        : interval === "30min"
-        ? 336
-        : interval === "60min"
-        ? 336
-        : interval === "4h"
-        ? 180
-        : interval === "weekly"
-        ? 12
-        : interval === "monthly"
-        ? 6
-        : 365;
+          ? 72
+          : interval === "15min"
+            ? 288
+            : interval === "30min"
+              ? 336
+              : interval === "60min"
+                ? 336
+                : interval === "4h"
+                  ? 180
+                  : interval === "weekly"
+                    ? 12
+                    : interval === "monthly"
+                      ? 6
+                      : 365;
     const lookbackBars =
       (typeof desiredLookbackBars === "number"
         ? desiredLookbackBars
@@ -685,11 +704,11 @@ export async function POST(request: Request) {
       },
       dealingRange: ictPayload.dealingRange
         ? {
-            low: ictPayload.dealingRange.low,
-            high: ictPayload.dealingRange.high,
-            eq: ictPayload.dealingRange.eq,
-            pdPercent: ictPayload.dealingRange.pdPercent,
-          }
+          low: ictPayload.dealingRange.low,
+          high: ictPayload.dealingRange.high,
+          eq: ictPayload.dealingRange.eq,
+          pdPercent: ictPayload.dealingRange.pdPercent,
+        }
         : null,
       // Keep only top 3 OBs by order as produced (assumed already scored)
       orderBlocks: (ictPayload.orderBlocks || []).slice(0, 3).map((ob) => ({
